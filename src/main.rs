@@ -10,6 +10,7 @@ use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
+use nazar::validate_file_ext;
 use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ipv4::Ipv4Packet;
@@ -58,6 +59,10 @@ fn main() -> Result<()> {
     };
 
     // Rules file
+    if !validate_file_ext(&args.rules, "toml") {
+        return Err(anyhow!("rules file must be a .toml file"));
+    }
+
     let rules_file = File::open(&args.rules).with_context(|| {
         format!(
             "No rules file of the name `{}` exists",
@@ -66,11 +71,7 @@ fn main() -> Result<()> {
     })?;
     let mut buf = BufReader::new(rules_file);
 
-    println!("------------YOUR RULES:----------");
-    for line in buf.lines() {
-        println!("{}", line?);
-    }
-    println!("----------------------------------");
+    println!("Reading rules from `{}`", args.rules.display());
 
     let mut rx = match datalink::channel(&iface, Default::default()) {
         Ok(datalink::Channel::Ethernet(_, rx)) => rx,
