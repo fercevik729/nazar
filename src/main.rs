@@ -1,12 +1,16 @@
+extern crate anyhow;
 extern crate clap;
 extern crate pnet;
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::fs::{File, OpenOptions};
+use std::fs::{create_dir, create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 use clap::Parser;
+
+use anyhow::{anyhow, Context, Result};
 
 use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
@@ -32,19 +36,8 @@ struct Args {
     // Path to directory to output log files
     // If not provided, the program will write logs in a 'logs' directory in the
     // current working directory
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "DIR")]
     outlog: Option<std::path::PathBuf>,
-}
-
-#[derive(Debug)]
-struct CustomError(String);
-
-impl Error for CustomError {}
-
-impl Display for CustomError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
 }
 
 // Gets the network interface with the corresponding name or returns a default
@@ -63,24 +56,24 @@ fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     // Interface
     let iface = match get_iface(args.iface) {
         Some(x) => x,
         None => {
-            return Err(Box::new(CustomError(String::from(
-                "Error: unable to find a suitable network interface to sniff packets on",
-            ))))
+            return Err(anyhow!(
+                "unable to find a suitable network interface to sniff packets on"
+            ))
         }
     };
 
-    // Log file
+    // Logs directory
     let mut opts = OpenOptions::new();
-    let outlog = match args.outlog {
-        Some(fp) => opts.write(true).append(true).create(true).open(&fp),
-        None => opts.write(true).append(true).create(true).open("nazar.log"),
+    let outlogdir = match args.outlog {
+        Some(fp) => create_dir_all(fp),
+        None => create_dir("logs"),
     };
 
     // Rules file
@@ -93,13 +86,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("----------------------------------");
 
-    let (_, mut rx) = match datalink::channel(&iface, Default::default()) {
-        Ok(datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => panic!("Unknown channel type"),
-        Err(e) => panic!(
-            "An error occurred when creating the datalink channel: {}",
-            e
-        ),
+    let mut rx = match datalink::channel(&iface, Default::default()) {
+        Ok(datalink::Channel::Ethernet(_, rx)) => rx,
+        Ok(_) => return Err(anyhow!("unknown channel type",)),
+        Err(e) => {
+            return Err(anyhow!("couldn't create the datalink channel, make sure to run `nazar` as root or with `sudo`."));
+        }
     };
 
     loop {
