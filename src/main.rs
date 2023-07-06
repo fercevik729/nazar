@@ -1,9 +1,14 @@
 extern crate clap;
 extern crate pnet;
 
+use std::error::Error;
+use std::fmt::{self, Display, Formatter};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader};
+
 use clap::Parser;
 
-use pnet::datalink;
+use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::Packet;
@@ -27,24 +32,68 @@ struct Args {
     // Path to directory to output log files
     // If not provided, the program will write logs in a 'logs' directory in the
     // current working directory
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "FILE")]
     outlog: Option<std::path::PathBuf>,
 }
 
-fn main() {
+#[derive(Debug)]
+struct CustomError(String);
+
+impl Error for CustomError {}
+
+impl Display for CustomError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+// Gets the network interface with the corresponding name or returns a default
+// value
+fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
+    // Gather the network interfaces into an iterator
+    let mut interfaces = datalink::interfaces().into_iter();
+
+    // If an interface name was provided
+    if let Some(iface_name) = iface {
+        interfaces.find(|x| x.name == iface_name)
+
+    // Try to find a suitable default interface
+    } else {
+        interfaces.find(|iface| iface.is_up() && !iface.is_loopback() && !iface.ips.is_empty())
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // TODO: handle None case of optional arguments
+    // Interface
+    let iface = match get_iface(args.iface) {
+        Some(x) => x,
+        None => {
+            return Err(Box::new(CustomError(String::from(
+                "Error: unable to find a suitable network interface to sniff packets on",
+            ))))
+        }
+    };
 
-    println!("{:?}", args);
+    // Log file
+    let mut opts = OpenOptions::new();
+    let outlog = match args.outlog {
+        Some(fp) => opts.write(true).append(true).create(true).open(&fp),
+        None => opts.write(true).append(true).create(true).open("nazar.log"),
+    };
 
-    let interfaces = datalink::interfaces();
-    let interface = interfaces
-        .into_iter()
-        .find(|iface| iface.name == "en0")
-        .expect("No non-loopback interface found.");
+    // Rules file
+    let rules_file = File::open(&args.rules)?;
+    let mut buf = BufReader::new(rules_file);
 
-    let (_, mut rx) = match datalink::channel(&interface, Default::default()) {
+    println!("------------YOUR RULES:----------");
+    for line in buf.lines() {
+        println!("{}", line?);
+    }
+    println!("----------------------------------");
+
+    let (_, mut rx) = match datalink::channel(&iface, Default::default()) {
         Ok(datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("Unknown channel type"),
         Err(e) => panic!(
