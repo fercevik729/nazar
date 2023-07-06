@@ -2,8 +2,6 @@ extern crate anyhow;
 extern crate clap;
 extern crate pnet;
 
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
 use std::fs::{create_dir, create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -40,27 +38,11 @@ struct Args {
     outlog: Option<std::path::PathBuf>,
 }
 
-// Gets the network interface with the corresponding name or returns a default
-// value
-fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
-    // Gather the network interfaces into an iterator
-    let mut interfaces = datalink::interfaces().into_iter();
-
-    // If an interface name was provided
-    if let Some(iface_name) = iface {
-        interfaces.find(|x| x.name == iface_name)
-
-    // Try to find a suitable default interface
-    } else {
-        interfaces.find(|iface| iface.is_up() && !iface.is_loopback() && !iface.ips.is_empty())
-    }
-}
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
     // Interface
-    let iface = match get_iface(args.iface) {
+    let iface = match nazar::get_iface(args.iface) {
         Some(x) => x,
         None => {
             return Err(anyhow!(
@@ -70,14 +52,18 @@ fn main() -> Result<()> {
     };
 
     // Logs directory
-    let mut opts = OpenOptions::new();
-    let outlogdir = match args.outlog {
+    let logdir = match args.outlog {
         Some(fp) => create_dir_all(fp),
         None => create_dir("logs"),
     };
 
     // Rules file
-    let rules_file = File::open(&args.rules)?;
+    let rules_file = File::open(&args.rules).with_context(|| {
+        format!(
+            "No rules file of the name `{}` exists",
+            &args.rules.display()
+        )
+    })?;
     let mut buf = BufReader::new(rules_file);
 
     println!("------------YOUR RULES:----------");
@@ -89,7 +75,7 @@ fn main() -> Result<()> {
     let mut rx = match datalink::channel(&iface, Default::default()) {
         Ok(datalink::Channel::Ethernet(_, rx)) => rx,
         Ok(_) => return Err(anyhow!("unknown channel type",)),
-        Err(e) => {
+        Err(_) => {
             return Err(anyhow!("couldn't create the datalink channel, make sure to run `nazar` as root or with `sudo`."));
         }
     };
