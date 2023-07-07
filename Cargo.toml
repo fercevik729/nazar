@@ -9,6 +9,8 @@ edition = "2021"
 anyhow = "1.0.71"
 clap = { version = "4.3.11", features = ["derive"] }
 pnet = "0.33.0"
+serde = {version = "1.0.167", features = ["derive"]}
+toml = "0.7.6"
 
 [dev-dependencies]
 assert_cmd = "2.0.11"

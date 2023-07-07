@@ -16,6 +16,8 @@ use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::Packet;
 
+pub mod rule_parser;
+
 #[derive(Parser, Debug)]
 #[command(name = "nazar")]
 #[command(author = "Furkan E. <f.ercevik21@gmail.com>")]
