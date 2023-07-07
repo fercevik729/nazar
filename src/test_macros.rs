@@ -11,7 +11,7 @@ macro_rules! assert_err {
     ($expression: expr, $expected: expr) => {
         match $expression {
             Ok(value) => panic!("Expected Err({:?}), but got Ok({:?})", $expected, value),
-            Err(err) => assert_eq!(err., $expected),
+            Err(err) => assert_eq!(format!("{}", err), $expected),
         }
     };
 }

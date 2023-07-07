@@ -77,7 +77,7 @@ mod iprange_tests {
     };
 
     #[test]
-    fn test_iprange_new_1() {
+    fn new_two_endpoints() {
         let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let e = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
 
@@ -90,16 +90,32 @@ mod iprange_tests {
     }
 
     #[test]
-    fn test_iprange_new_2() {
-        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3));
-        let value = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let e = Some(value);
+    fn new_one_endpoint() {
+        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let e = None;
 
-        let exp = Err(anyhow!(format!(
+        let exp = IpRange {
+            begin: Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped(),
+            end: None,
+        };
+
+        assert_ok!(IpRange::new(b, e), exp)
+    }
+
+    #[test]
+    fn new_invalid_range() {
+        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3));
+        let e_val = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let e = Some(e_val);
+
+        let b_v6 = Ipv4Addr::new(127, 0, 0, 3).to_ipv6_mapped();
+        let e_v6 = Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped();
+
+        let exp = format!(
             "end_ip {} must be greater than or equal to begin_ip {}",
-            value, b
-        )));
-        assert_err!(IpRange::new(b, e), exp)
+            e_v6, b_v6
+        );
+        assert_err!(IpRange::new(b, e), exp);
     }
 }
 
@@ -111,11 +127,78 @@ enum BWList {
 }
 
 impl BWList {
-    fn valid_ip(&self, ip: IpAddr) -> bool {
+    fn is_valid_ip(&self, ip: IpAddr) -> bool {
         match self {
             BWList::WhiteList(v) => return v.iter().find(|ipr| ipr.in_range(ip)) != None,
             BWList::BlackList(v) => return v.iter().find(|ipr| ipr.in_range(ip)) == None,
         }
+    }
+}
+
+#[cfg(test)]
+mod bwlist_tests {
+
+    use anyhow::Result;
+
+    use super::*;
+    use crate::test_macros::*;
+
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn whitelist_tests() -> Result<()> {
+        let wl = BWList::WhiteList(vec![
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(147, 168, 0, 3))),
+            )?,
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(150, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(162, 168, 0, 3))),
+            )?,
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(170, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(192, 128, 0, 1))),
+            )?,
+            IpRange::new(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 1)), None)?,
+        ]);
+
+        assert!(wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5))));
+        assert!(!wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
+        assert!(wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(161, 0, 0, 4))));
+        assert!(!wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(200, 0, 0, 4))));
+        assert!(wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(181, 0, 0, 4))));
+        assert!(!wl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 4))));
+
+        Ok(())
+    }
+
+    #[test]
+    fn blacklist_tests() -> Result<()> {
+        let bl = BWList::BlackList(vec![
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(147, 168, 0, 3))),
+            )?,
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(150, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(162, 168, 0, 3))),
+            )?,
+            IpRange::new(
+                IpAddr::V4(Ipv4Addr::new(170, 0, 0, 5)),
+                Some(IpAddr::V4(Ipv4Addr::new(192, 128, 0, 1))),
+            )?,
+            IpRange::new(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 1)), None)?,
+        ]);
+
+        assert!(!bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5))));
+        assert!(bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
+        assert!(!bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(161, 0, 0, 4))));
+        assert!(bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(200, 0, 0, 4))));
+        assert!(!bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(181, 0, 0, 4))));
+        assert!(bl.is_valid_ip(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 4))));
+
+        Ok(())
     }
 }
 
