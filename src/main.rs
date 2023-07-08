@@ -17,7 +17,7 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::Packet;
 
 pub mod rule_parser;
-pub mod test_macros;
+pub mod utils;
 
 #[derive(Parser, Debug)]
 #[command(name = "nazar")]

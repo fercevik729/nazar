@@ -12,6 +12,8 @@ use anyhow::{anyhow, Result};
 trait Validate {
     type Item: Copy;
 
+    // A function to check if an item `other` is considered valid
+    // for a given trait object
     fn is_valid(&self, other: Self::Item) -> bool;
 }
 
@@ -79,7 +81,9 @@ impl Validate for IpRange {
 #[cfg(test)]
 mod iprange_tests {
     use super::*;
-    use crate::test_macros::*;
+
+    #[macro_use]
+    use crate::{assert_ok, assert_err};
 
     use std::{
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -127,9 +131,33 @@ mod iprange_tests {
         );
         assert_err!(IpRange::new(b, e), exp);
     }
+
+    #[test]
+    fn is_valid_ip() -> Result<()> {
+        let b1 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let ipr1 = IpRange::new(b1, None)?;
+
+        assert!(ipr1.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(!ipr1.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3))));
+
+        let b2 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5));
+        let e2 = Some(IpAddr::V4(Ipv4Addr::new(127, 1, 2, 19)));
+        let ipr2 = IpRange::new(b2, e2)?;
+
+        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
+        assert!(ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 1, 0, 4))));
+        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 1, 2, 20))));
+
+        Ok(())
+    }
 }
 
-#[derive(Deserialize)]
+// A struct to represent Port Ranges
+// To be used with the BWList struct
+// to specify which ports are allowed/forbidden
+// to be crossed during a connection
+#[derive(Deserialize, Debug, PartialEq)]
 struct PortRange {
     begin: i32,
     end: Option<i32>,
@@ -138,7 +166,7 @@ struct PortRange {
 impl PortRange {
     fn new(begin: i32, end: Option<i32>) -> Result<Self> {
         // Validate the port numbers are within the 0 to 65536 range
-        let valid_ports = 0..65536;
+        let valid_ports = 0..=65536;
         if !(valid_ports).contains(&begin) {
             return Err(anyhow!(
                 "begin port {} must be in the range 0 to 65536",
@@ -173,6 +201,82 @@ impl Validate for PortRange {
     }
 }
 
+#[cfg(test)]
+mod portrange_tests {
+    use super::*;
+
+    #[macro_use]
+    use crate::{assert_ok, assert_err};
+
+    #[test]
+    fn new_two_endpoints() {
+        let b = 127;
+        let e = Some(198);
+
+        let exp = PortRange {
+            begin: 127,
+            end: Some(198),
+        };
+
+        assert_ok!(PortRange::new(b, e), exp)
+    }
+
+    #[test]
+    fn new_one_endpoint() {
+        let b = 127;
+        let e: Option<i32> = None;
+
+        let exp = PortRange {
+            begin: 127,
+            end: None,
+        };
+
+        assert_ok!(PortRange::new(b, e), exp)
+    }
+
+    #[test]
+    fn new_invalid_range() {
+        let b = 127;
+        let e = 101;
+
+        let exp = format!(
+            "end port {} must be greater than or equal to begin port {}",
+            e, b
+        );
+        assert_err!(PortRange::new(b, Some(e)), exp);
+
+        let b2 = 65538;
+        let e2: Option<i32> = None;
+        let exp2 = format!("begin port {} must be in the range 0 to 65536", b2,);
+        assert_err!(PortRange::new(b2, None), exp2);
+
+        let b3 = 1;
+        let e3 = 65538;
+        let exp3 = format!("end port {} must be in the range 0 to 65536", e3);
+        assert_err!(PortRange::new(b3, Some(e3)), exp3);
+    }
+
+    #[test]
+    fn is_valid_port() -> Result<()> {
+        let b1 = 127;
+        let pr1 = PortRange::new(b1, None)?;
+
+        assert!(pr1.is_valid(127));
+        assert!(!pr1.is_valid(128));
+
+        let b2 = 80;
+        let e2 = Some(86);
+        let pr2 = PortRange::new(b2, e2)?;
+
+        assert!(!pr2.is_valid(87));
+        assert!(!pr2.is_valid(79));
+        assert!(pr2.is_valid(83));
+        assert!(!pr2.is_valid(127));
+
+        Ok(())
+    }
+}
+
 // Enum to represent blacklist and whitelist
 // for src/dest IP addresses
 // for ports
@@ -198,7 +302,8 @@ mod bwlist_tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::test_macros::*;
+    #[macro_use]
+    use crate::{assert_ok, assert_err};
 
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -261,10 +366,10 @@ mod bwlist_tests {
     #[test]
     fn whitelist_port_tests() -> Result<()> {
         let wl = BWList::WhiteList(vec![
-            PortRange::new(80, Some(82)),
-            PortRange::new(90, Some(95)),
-            PortRange::new(103, Some(195)),
-            PortRange::new(202, Some(195)),
+            PortRange::new(80, Some(82))?,
+            PortRange::new(90, Some(95))?,
+            PortRange::new(103, Some(195))?,
+            PortRange::new(202, Some(212))?,
         ]);
 
         Ok(())
