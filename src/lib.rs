@@ -1,9 +1,9 @@
 extern crate pnet;
 
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::Path;
 
-use pnet::datalink::{self, interfaces, NetworkInterface};
+use pnet::datalink::{interfaces, NetworkInterface};
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -22,7 +22,7 @@ pub fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
 }
 
 // Validates a file's extension against the provided `ext` parameter
-pub fn validate_file_ext(filepath: &PathBuf, ext: &str) -> bool {
+pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
     filepath.extension() == Some(OsStr::new(ext))
 }
 

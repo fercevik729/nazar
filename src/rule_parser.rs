@@ -175,15 +175,13 @@ impl PortRange {
         }
         match end {
             Some(e) if !(valid_ports).contains(&e) => {
-                return Err(anyhow!("end port {} must be in the range 0 to 65536", e));
+                Err(anyhow!("end port {} must be in the range 0 to 65536", e))
             }
-            Some(e) if e < begin => {
-                return Err(anyhow!(
-                    "end port {} must be greater than or equal to begin port {}",
-                    e,
-                    begin,
-                ))
-            }
+            Some(e) if e < begin => Err(anyhow!(
+                "end port {} must be greater than or equal to begin port {}",
+                e,
+                begin,
+            )),
             _ => Ok(Self { begin, end }),
         }
     }
@@ -277,6 +275,9 @@ mod portrange_tests {
     }
 }
 
+// Struct to represent
+struct Protocol(String);
+
 // Enum to represent blacklist and whitelist
 // for src/dest IP addresses
 // for ports
@@ -290,8 +291,8 @@ enum BWList<T: Validate> {
 impl<T: Validate + PartialEq> BWList<T> {
     fn is_valid_item(&self, target: T::Item) -> bool {
         match self {
-            BWList::WhiteList(v) => return v.iter().find(|item| item.is_valid(target)) != None,
-            BWList::BlackList(v) => return v.iter().find(|item| item.is_valid(target)) == None,
+            BWList::WhiteList(v) => return v.iter().any(|item| item.is_valid(target)),
+            BWList::BlackList(v) => return !v.iter().any(|item| item.is_valid(target)),
         }
     }
 }

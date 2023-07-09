@@ -2,16 +2,15 @@ extern crate anyhow;
 extern crate clap;
 extern crate pnet;
 
-use std::fs::{create_dir, create_dir_all, File, OpenOptions};
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::fs::{create_dir, create_dir_all, File};
+use std::io::BufReader;
 
 use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
 use nazar::validate_file_ext;
-use pnet::datalink::{self, NetworkInterface};
+use pnet::datalink;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::Packet;
@@ -56,7 +55,7 @@ fn main() -> Result<()> {
     };
 
     // Logs directory
-    let logdir = match args.outlog {
+    let _logdir = match args.outlog {
         Some(fp) => create_dir_all(fp),
         None => create_dir("logs"),
     };
@@ -72,7 +71,7 @@ fn main() -> Result<()> {
             &args.rules.display()
         )
     })?;
-    let mut buf = BufReader::new(rules_file);
+    let mut _buf = BufReader::new(rules_file);
 
     println!("Reading rules from `{}`", args.rules.display());
 
