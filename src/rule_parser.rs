@@ -23,7 +23,6 @@ struct IpRange {
     begin: Ipv6Addr,
     end: Option<Ipv6Addr>,
 }
-
 impl IpRange {
     // Creates an IpRange struct of the `begin` and `end` parameters
     fn new(begin: IpAddr, end: Option<IpAddr>) -> Result<Self> {
@@ -275,8 +274,57 @@ mod portrange_tests {
     }
 }
 
-// Struct to represent
-struct Protocol(String);
+// Enum to represent Protocols
+#[derive(Deserialize, Clone, Copy)]
+enum Protocol {
+    Tcp,
+    Udp,
+    Icmp,
+}
+
+impl Validate for Protocol {
+    type Item = Protocol;
+
+    fn is_valid(&self, other: Self::Item) -> bool {
+        matches!(
+            (self, other),
+            (Self::Tcp, Self::Tcp) | (Self::Udp, Self::Udp) | (Self::Icmp, Self::Icmp)
+        )
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+
+    use super::*;
+
+    #[test]
+    fn test_validate_1() {
+        let prot = Protocol::Tcp;
+
+        assert!(prot.is_valid(Protocol::Tcp));
+        assert!(!prot.is_valid(Protocol::Udp));
+        assert!(!prot.is_valid(Protocol::Icmp));
+    }
+
+    #[test]
+    fn test_validate_2() {
+        let prot = Protocol::Udp;
+
+        assert!(!prot.is_valid(Protocol::Tcp));
+        assert!(prot.is_valid(Protocol::Udp));
+        assert!(!prot.is_valid(Protocol::Icmp));
+    }
+
+    #[test]
+    fn test_validate_3() {
+        let prot = Protocol::Icmp;
+
+        assert!(!prot.is_valid(Protocol::Tcp));
+        assert!(!prot.is_valid(Protocol::Udp));
+        assert!(prot.is_valid(Protocol::Icmp));
+    }
+}
 
 // Enum to represent blacklist and whitelist
 // for src/dest IP addresses
@@ -379,5 +427,8 @@ mod bwlist_tests {
 
 #[derive(Deserialize)]
 struct Rules {
-    ip_list: Option<BWList<IpRange>>,
+    src_ip_list: Option<BWList<IpRange>>,
+    dest_ip_list: Option<BWList<IpRange>>,
+    port_list: Option<BWList<PortRange>>,
+    protoc_list: Option<BWList<Protocol>>,
 }
