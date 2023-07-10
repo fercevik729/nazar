@@ -1,9 +1,19 @@
+extern crate anyhow;
 extern crate pnet;
 
 use std::ffi::OsStr;
 use std::path::Path;
 
-use pnet::datalink::{interfaces, NetworkInterface};
+use pnet::{
+    datalink::{self, interfaces, DataLinkReceiver, NetworkInterface},
+    packet::{
+        ethernet::{EtherTypes, Ethernet, EthernetPacket},
+        ipv4::Ipv4Packet,
+        Packet,
+    },
+};
+
+use anyhow::{anyhow, Result};
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -24,6 +34,37 @@ pub fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
 // Validates a file's extension against the provided `ext` parameter
 pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
     filepath.extension() == Some(OsStr::new(ext))
+}
+
+// Sets up the packet capture datalink receiver via Ethernet interface
+pub fn setup_pcap_rec(iface: &NetworkInterface) -> Result<Box<dyn datalink::DataLinkReceiver>> {
+    match datalink::channel(iface, Default::default()) {
+        Ok(datalink::Channel::Ethernet(_, rx)) => Ok(rx),
+        Ok(_) => Err(anyhow!("unknown channel type")),
+        Err(_) => Err(anyhow!("couldn't create the datalink channel")),
+    }
+}
+
+// Packet capture logic
+pub fn pcap_handle(rx: Box<&mut dyn datalink::DataLinkReceiver>, _: std::path::PathBuf) {
+    loop {
+        match rx.next() {
+            Ok(packet) => {
+                let eth_packet = EthernetPacket::new(packet).unwrap();
+                if eth_packet.get_ethertype() == EtherTypes::Ipv4 {
+                    let ipv4_packet = Ipv4Packet::new(eth_packet.payload()).unwrap();
+                    println!(
+                        "Source IP: {}, Destination IP: {}",
+                        ipv4_packet.get_source(),
+                        ipv4_packet.get_destination(),
+                    );
+                }
+            }
+            Err(e) => {
+                panic!("An error occurred while reading: {}", e);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

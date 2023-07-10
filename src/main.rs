@@ -1,19 +1,15 @@
 extern crate anyhow;
 extern crate clap;
-extern crate pnet;
 
-use std::fs::{create_dir, create_dir_all, File};
+use std::fs::{create_dir_all, File};
 use std::io::BufReader;
+use std::path::PathBuf;
 
 use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
-use nazar::validate_file_ext;
-use pnet::datalink;
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::Packet;
+use nazar::{pcap_handle, setup_pcap_rec, validate_file_ext};
 
 pub mod rule_parser;
 pub mod utils;
@@ -32,13 +28,13 @@ struct Args {
 
     // Path to file containing the rules
     #[arg(short, long, value_name = "FILE")]
-    rules: std::path::PathBuf,
+    rules: PathBuf,
 
     // Path to directory to output log files
     // If not provided, the program will write logs in a 'logs' directory in the
     // current working directory
     #[arg(short, long, value_name = "DIR")]
-    outlog: Option<std::path::PathBuf>,
+    outlog: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -55,16 +51,16 @@ fn main() -> Result<()> {
     };
 
     // Logs directory
-    let _logdir = match args.outlog {
-        Some(fp) => create_dir_all(fp),
-        None => create_dir("logs"),
+    let logdir_name = match args.outlog {
+        Some(ref fp) => fp.clone(),
+        None => PathBuf::from("logs"),
     };
+    create_dir_all(logdir_name).with_context(|| "could not create directory")?;
 
     // Rules file
     if !validate_file_ext(&args.rules, "toml") {
         return Err(anyhow!("rules file must be a .toml file"));
     }
-
     let rules_file = File::open(&args.rules).with_context(|| {
         format!(
             "No rules file of the name `{}` exists",
@@ -72,34 +68,14 @@ fn main() -> Result<()> {
         )
     })?;
     let mut _buf = BufReader::new(rules_file);
-
     println!("Reading rules from `{}`", args.rules.display());
 
-    let mut rx = match datalink::channel(&iface, Default::default()) {
-        Ok(datalink::Channel::Ethernet(_, rx)) => rx,
-        Ok(_) => return Err(anyhow!("unknown channel type",)),
-        Err(_) => {
-            return Err(anyhow!("couldn't create the datalink channel, make sure to run `nazar` as root or with `sudo`."));
-        }
-    };
+    // Packet capture
+    let mut rx = setup_pcap_rec(&iface)?;
+    pcap_handle(
+        Box::new(rx.as_mut()),
+        args.outlog.unwrap_or_else(|| PathBuf::from("logs")),
+    );
 
-    loop {
-        match rx.next() {
-            Ok(packet) => {
-                let eth_packet = EthernetPacket::new(packet).unwrap();
-                if eth_packet.get_ethertype() == EtherTypes::Ipv4 {
-                    let ipv4_packet = Ipv4Packet::new(eth_packet.payload()).unwrap();
-                    println!(
-                        "Source IP: {}, Destination IP: {}, Payload: {:?}",
-                        ipv4_packet.get_source(),
-                        ipv4_packet.get_destination(),
-                        ipv4_packet.payload(),
-                    );
-                }
-            }
-            Err(e) => {
-                panic!("An error occurred while reading: {}", e);
-            }
-        }
-    }
+    Ok(())
 }

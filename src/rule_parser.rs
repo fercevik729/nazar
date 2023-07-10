@@ -432,3 +432,20 @@ struct Rules {
     port_list: Option<BWList<PortRange>>,
     protoc_list: Option<BWList<Protocol>>,
 }
+
+enum IdsAction {
+    Alert,
+    Log,
+}
+
+struct Rule {
+    src_ip: IpAddr,
+    src_port: i32,
+    dest_ip: IpAddr,
+    dest_port: i32,
+    prot_rule: ProtocolRule,
+}
+
+enum ProtocolRule {
+    HttpRule,
+}
