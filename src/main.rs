@@ -9,8 +9,6 @@ use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
-use nazar::{pcap_handle, setup_pcap_rec, validate_file_ext};
-
 pub mod rule_parser;
 pub mod utils;
 
@@ -58,7 +56,7 @@ fn main() -> Result<()> {
     create_dir_all(logdir_name).with_context(|| "could not create directory")?;
 
     // Rules file
-    if !validate_file_ext(&args.rules, "toml") {
+    if !nazar::validate_file_ext(&args.rules, "toml") {
         return Err(anyhow!("rules file must be a .toml file"));
     }
     let rules_file = File::open(&args.rules).with_context(|| {
@@ -71,11 +69,8 @@ fn main() -> Result<()> {
     println!("Reading rules from `{}`", args.rules.display());
 
     // Packet capture
-    let mut rx = setup_pcap_rec(&iface)?;
-    pcap_handle(
-        Box::new(rx.as_mut()),
-        args.outlog.unwrap_or_else(|| PathBuf::from("logs")),
-    );
+    let rx = &mut (*nazar::setup_pcap_rec(&iface)?);
+    nazar::handle_pcap(rx, args.outlog.unwrap_or_else(|| PathBuf::from("logs")));
 
     Ok(())
 }
