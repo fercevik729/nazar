@@ -1,10 +1,25 @@
 extern crate anyhow;
+extern crate log;
 extern crate pnet;
 
+use std::fs::{create_dir, File};
+use std::io::ErrorKind;
 use std::path::Path;
 use std::{ffi::OsStr, net::IpAddr};
 
-use pnet::packet::icmp::{self, IcmpPacket, IcmpTypes};
+use log::{error, info, warn};
+
+use log::LevelFilter;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::config::{Appender, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::filter::threshold::ThresholdFilter;
+use log4rs::{self, Config};
+
+use pnet::packet::icmp::IcmpPacket;
 use pnet::packet::icmpv6::Icmpv6Packet;
 use pnet::packet::ip::{IpNextHeaderProtocol, IpNextHeaderProtocols};
 use pnet::packet::tcp::TcpPacket;
@@ -19,7 +34,7 @@ use pnet::{
     },
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -42,6 +57,11 @@ pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
     filepath.extension() == Some(OsStr::new(ext))
 }
 
+pub struct PCap<'a> {
+    rx: &'a mut dyn datalink::DataLinkReceiver,
+    rules: Option<String>,
+}
+
 // Sets up the packet capture datalink receiver via a provided Ethernet interface
 pub fn setup_pcap_rec(iface: &NetworkInterface) -> Result<Box<dyn datalink::DataLinkReceiver>> {
     match datalink::channel(iface, Default::default()) {
@@ -51,12 +71,65 @@ pub fn setup_pcap_rec(iface: &NetworkInterface) -> Result<Box<dyn datalink::Data
     }
 }
 
+// Sets up logging using log4rs and a rotating file appender
+pub fn setup_logging(
+    mut log_path: std::path::PathBuf,
+    window_size: u32,
+    size_limit: u64,
+) -> Result<()> {
+    // Create log directory
+    let res = create_dir(log_path.clone());
+    if let Err(e) = res {
+        // Only return err if it doesn't already exist
+        if e.kind() != ErrorKind::AlreadyExists {
+            return Err(anyhow!("{}", e.to_string()));
+        }
+    }
+    log_path.push("logfile.gz");
+
+    File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(log_path.clone())?;
+
+    let fixed_window_roller =
+        FixedWindowRoller::builder().build("./backups/log{}.gz", window_size)?;
+    let size_trigger = SizeTrigger::new(size_limit);
+    let compound_policy =
+        CompoundPolicy::new(Box::new(size_trigger), Box::new(fixed_window_roller));
+
+    // log4rs config
+    let config = Config::builder()
+        .appender(
+            Appender::builder()
+                .filter(Box::new(ThresholdFilter::new(LevelFilter::Debug)))
+                .build(
+                    log_path.to_str().unwrap(),
+                    Box::new(
+                        RollingFileAppender::builder()
+                            .encoder(Box::new(PatternEncoder::new("{d} {l}:{m}{n}")))
+                            .build(log_path.to_str().unwrap(), Box::new(compound_policy))
+                            .expect("Couldn't create RollingFileAppender"),
+                    ),
+                ),
+        )
+        .build(
+            Root::builder()
+                .appender(log_path.to_str().unwrap())
+                .build(LevelFilter::Debug),
+        )
+        .with_context(|| "Couldn't create root logger".to_string())?;
+    log4rs::init_config(config).expect("Failed to initialize log4rs");
+    Ok(())
+}
+
 // Packet capture logic
 // TODO: work on logging
 // work on error recovery
 // add helper functions to separate logic
 // add multithreading eventually
-pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver, _: std::path::PathBuf) {
+pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver) {
     loop {
         match rx.next() {
             Ok(packet) => {
@@ -71,7 +144,7 @@ pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver, _: std::path::PathBu
                 }
             }
             Err(e) => {
-                panic!("An error occurred while reading: {}", e);
+                error!("An error occurred while reading: {}", e);
             }
         }
     }
@@ -80,7 +153,7 @@ pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver, _: std::path::PathBu
 fn process_tcp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let tcp_packet = TcpPacket::new(packet);
     if let Some(tcp_packet) = tcp_packet {
-        println!(
+        info!(
             "TCP Packet from {}:{} > {}:{}",
             src,
             tcp_packet.get_source(),
@@ -88,14 +161,14 @@ fn process_tcp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
             tcp_packet.get_destination(),
         );
     } else {
-        println!("[WARN] Malformed TCP packet from {} > {}", src, dest);
+        warn!("Malformed TCP packet from {} > {}", src, dest);
     }
 }
 
 fn process_udp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let udp_packet = UdpPacket::new(packet);
     if let Some(udp_packet) = udp_packet {
-        println!(
+        info!(
             "UDP Packet from {}:{} > {}:{}",
             src,
             udp_packet.get_source(),
@@ -103,14 +176,14 @@ fn process_udp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
             udp_packet.get_destination(),
         );
     } else {
-        println!("[WARN] Malformed UDP packet from {} > {}", src, dest);
+        warn!("Malformed UDP packet from {} > {}", src, dest);
     }
 }
 
 fn process_icmp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let icmp_packet = IcmpPacket::new(packet);
     if let Some(icmp_packet) = icmp_packet {
-        println!(
+        info!(
             "ICMP Packet from {} > {} of type {:?} and code {:?}",
             src,
             dest,
@@ -118,14 +191,14 @@ fn process_icmp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
             icmp_packet.get_icmp_code(),
         );
     } else {
-        println!("[WARN] Malformed ICMP packet from {} > {}", src, dest);
+        warn!("Malformed ICMP packet from {} > {}", src, dest);
     }
 }
 
 fn process_icmpv6_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let icmp_packet = Icmpv6Packet::new(packet);
     if let Some(icmp_packet) = icmp_packet {
-        println!(
+        info!(
             "ICMPv6 Packet from {} > {} of type {:?} and code {:?}",
             src,
             dest,
@@ -133,7 +206,7 @@ fn process_icmpv6_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
             icmp_packet.get_icmpv6_code(),
         );
     } else {
-        println!("[WARN] Malformed ICMPv6 packet from {} > {}", src, dest);
+        warn!("Malformed ICMPv6 packet from {} > {}", src, dest);
     }
 }
 
@@ -142,30 +215,18 @@ fn process_transport_protocol(
     dest: IpAddr,
     protocol: IpNextHeaderProtocol,
     payload: &[u8],
-) -> Result<()> {
+) {
     match protocol {
-        IpNextHeaderProtocols::Tcp => {
-            process_tcp_packet(src, dest, payload);
-            Ok(())
-        }
-        IpNextHeaderProtocols::Udp => {
-            process_udp_packet(src, dest, payload);
-            Ok(())
-        }
-        IpNextHeaderProtocols::Icmp => {
-            process_icmp_packet(src, dest, payload);
-            Ok(())
-        }
-        IpNextHeaderProtocols::Icmpv6 => {
-            process_icmpv6_packet(src, dest, payload);
-            Ok(())
-        }
-        _ => Err(anyhow!("Unsupported protocol {}", protocol)),
+        IpNextHeaderProtocols::Tcp => process_tcp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Udp => process_udp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Icmp => process_icmp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Icmpv6 => process_icmpv6_packet(src, dest, payload),
+        _ => warn!("Unsupported protocol {}", protocol),
     }
 }
 
-fn process_ipv4_packet(ipv4_packet: Ipv4Packet) -> Result<()> {
-    println!("Processing an ipv4 packet...");
+fn process_ipv4_packet(ipv4_packet: Ipv4Packet) {
+    info!("Processing an ipv4 packet...");
     process_transport_protocol(
         IpAddr::V4(ipv4_packet.get_source()),
         IpAddr::V4(ipv4_packet.get_destination()),
@@ -174,8 +235,8 @@ fn process_ipv4_packet(ipv4_packet: Ipv4Packet) -> Result<()> {
     )
 }
 
-fn process_ipv6_packet(ipv6_packet: Ipv6Packet) -> Result<()> {
-    println!("Processing an ipv6 packet...");
+fn process_ipv6_packet(ipv6_packet: Ipv6Packet) {
+    info!("Processing an ipv6 packet...");
     process_transport_protocol(
         IpAddr::V6(ipv6_packet.get_source()),
         IpAddr::V6(ipv6_packet.get_destination()),

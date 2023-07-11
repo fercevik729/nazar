@@ -1,7 +1,8 @@
 extern crate anyhow;
 extern crate clap;
+extern crate log;
 
-use std::fs::{create_dir_all, File};
+use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
@@ -48,12 +49,13 @@ fn main() -> Result<()> {
         }
     };
 
-    // Logs directory
-    let logdir_name = match args.outlog {
-        Some(ref fp) => fp.clone(),
-        None => PathBuf::from("logs"),
-    };
-    create_dir_all(logdir_name).with_context(|| "could not create directory")?;
+    // Logging with log4rs
+    let log_path = args
+        .outlog
+        .unwrap_or_else(|| std::path::PathBuf::from("logs"));
+    println!("Setting up logging in {:?} dir...", log_path);
+    nazar::setup_logging(log_path, 5, 5 * 1024)?;
+    println!("Done setting up logging...");
 
     // Rules file
     if !nazar::validate_file_ext(&args.rules, "toml") {
@@ -66,11 +68,12 @@ fn main() -> Result<()> {
         )
     })?;
     let mut _buf = BufReader::new(rules_file);
-    println!("Reading rules from `{}`", args.rules.display());
+    println!("Reading rules from `{}`...", args.rules.display());
 
     // Packet capture
+    println!("Initiating packet capture on interface {}...", iface);
     let rx = &mut (*nazar::setup_pcap_rec(&iface)?);
-    nazar::handle_pcap(rx, args.outlog.unwrap_or_else(|| PathBuf::from("logs")));
+    nazar::handle_pcap(rx);
 
     Ok(())
 }
