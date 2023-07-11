@@ -9,6 +9,8 @@ use serde::Deserialize;
 
 use anyhow::{anyhow, Result};
 
+pub mod rules;
+
 trait Validate {
     type Item: Copy;
 
@@ -274,12 +276,13 @@ mod portrange_tests {
     }
 }
 
-// Enum to represent Protocols
+// Enum to represent Transport layer protocols
 #[derive(Deserialize, Clone, Copy)]
 enum Protocol {
     Tcp,
     Udp,
     Icmp,
+    Icmpv6,
 }
 
 impl Validate for Protocol {
@@ -423,29 +426,4 @@ mod bwlist_tests {
 
         Ok(())
     }
-}
-
-#[derive(Deserialize)]
-struct Rules {
-    src_ip_list: Option<BWList<IpRange>>,
-    dest_ip_list: Option<BWList<IpRange>>,
-    port_list: Option<BWList<PortRange>>,
-    protoc_list: Option<BWList<Protocol>>,
-}
-
-enum IdsAction {
-    Alert,
-    Log,
-}
-
-struct Rule {
-    src_ip: IpAddr,
-    src_port: i32,
-    dest_ip: IpAddr,
-    dest_port: i32,
-    prot_rule: ProtocolRule,
-}
-
-enum ProtocolRule {
-    HttpRule,
 }
