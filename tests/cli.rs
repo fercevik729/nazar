@@ -1,15 +1,16 @@
+extern crate anyhow;
 extern crate assert_cmd;
 extern crate assert_fs;
 extern crate predicates;
 
+use anyhow::Result;
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
-use std::path::Path;
 use std::process::Command;
 
 #[test]
-fn rules_file_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
+fn rules_file_doesnt_exist() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
 
     cmd.arg("--rules").arg("rules.toml");
@@ -21,7 +22,7 @@ fn rules_file_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn invalid_rules_file_ext() -> Result<(), Box<dyn std::error::Error>> {
+fn invalid_rules_file_ext() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
 
     cmd.arg("--rules").arg("file/doesnt/exist.txt");
@@ -33,7 +34,7 @@ fn invalid_rules_file_ext() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn simple_rules_file() -> Result<(), Box<dyn std::error::Error>> {
+fn simple_rules_file() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
     let file = assert_fs::NamedTempFile::new("rules.toml")?;
     file.write_str("[whitelist]\n127.0.0.1\n192.168.23.1\n192.168.23.4")?;

@@ -1,4 +1,8 @@
 use super::{pnet::packet::Packet, BWList, Deserialize, IpRange, PortRange, Protocol, Result};
+
+#[macro_use]
+use crate::hashmap;
+
 use anyhow::anyhow;
 use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
@@ -137,9 +141,7 @@ impl ApplicationProtocol for HttpRule {
     // this function will not check the request for those parameters.
     //
     // For a request to return 'true' indicating that it matches the Rule struct provided
-    // it must match all the fields and at least one of their subfields as well. For example,
-    // if a rule parameter is a `vec` then the request must match at least one of the values
-    // that is contained with the `vec`.
+    // it must match all the fields and *at least one* of their subfields as well as needed.
     fn process_packet<'a>(&self, body: &[u8]) -> Result<bool> {
         // Parse request
         let mut headers = [httparse::EMPTY_HEADER; 16];
@@ -162,6 +164,7 @@ impl ApplicationProtocol for HttpRule {
             }
         };
         // Check the request path
+        // Must match at least one of the patterns in the path_contains field
         match req.path {
             Some(p) => {
                 if let Some(rp) = &self.path_contains {
@@ -176,7 +179,7 @@ impl ApplicationProtocol for HttpRule {
         };
 
         // Check the headers and make sure at least one of the header values is
-        // in the request
+        // in the request. Quit early once this header is found
         if let Some(map) = &self.headers_contain {
             for (header, target) in map.iter() {
                 let value = req.headers.iter().find(|&x| x.name == header);
@@ -194,6 +197,10 @@ impl ApplicationProtocol for HttpRule {
         }
 
         // Check the request body for the pattern
+        // Must contain at least one match
+        // If the body is empty/nonexistent but there
+        // are patterns in the rule the function should
+        // return false
         if let Status::Complete(ofs) = res {
             match &self.body_contains {
                 Some(bp) => {
@@ -201,7 +208,12 @@ impl ApplicationProtocol for HttpRule {
                 }
                 _ => {}
             }
+        } else if let Some(bp) = &self.body_contains {
+            conds[3] = false;
         }
+
+        // Final check to see if all the sub-conditions are true
+        // Indicating that the HTTP request matches the rule struct
 
         Ok(conds.iter().all(|&x| x))
     }
@@ -209,10 +221,12 @@ impl ApplicationProtocol for HttpRule {
 
 #[cfg(test)]
 mod http_tests {
-    use super::{ApplicationProtocol, HttpMethod, HttpRule, Result};
+    use crate::hashmap;
+
+    use super::{ApplicationProtocol, HashMap, HttpMethod, HttpRule, Result};
 
     #[test]
-    fn test_http_process_packet() -> Result<()> {
+    fn test_http_process_packet_1() -> Result<()> {
         let req = b"POST nazar.com/api/user HTTP/1.1\r\n\
                         Host: example.com\r\n\
                         Content-Type: application/json\r\n\
@@ -230,6 +244,68 @@ mod http_tests {
             Some(vec![String::from("secret"), String::from("missing")]),
         );
         assert!(rule_2.process_packet(req)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_process_packet_2() -> Result<()> {
+        let req = b"POST /api/user HTTP/1.1\r\n\
+                        Host: example.com\r\n\
+                        Content-Type: application/json\r\n\
+                        Content-Length: 25\r\n\
+                        \r\n\
+                        {\"username\":\"john\",\"password\":\"secret\"}";
+        let rule = HttpRule::new(
+            Some(HttpMethod::Post),
+            Some(hashmap! {
+                String::from("Host") => String::from("example.com"),
+                String::from("Content-Type") => String::from("text/html")
+            }),
+            Some(vec![String::from("/api"), String::from("/usr")]),
+            Some(vec![String::from("secret"), String::from("jenn")]),
+        );
+        assert!(rule.process_packet(req)?);
+
+        let rule2 = HttpRule::new(
+            Some(HttpMethod::Post),
+            None,
+            Some(vec![String::from("/secrete")]),
+            None,
+        );
+
+        assert!(!rule2.process_packet(req)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_process_packet_3() -> Result<()> {
+        let req = b"GET /virus/download.php HTTP/1.1\r\n\
+                    Host: sussy.com\r\n";
+
+        let rule = HttpRule::new(
+            Some(HttpMethod::Get),
+            Some(hashmap! {
+                String::from("Host") => String::from("sussy.com"),
+                String::from("Non-existent-Header") => String::from("malicious-value")
+            }),
+            Some(vec![String::from("/virus"), String::from("php")]),
+            None,
+        );
+
+        assert!(rule.process_packet(req)?);
+
+        let rule_2 = HttpRule::new(
+            Some(HttpMethod::Get),
+            Some(hashmap! {
+                String::from("Host") => String::from("sussy.com")
+            }),
+            None,
+            Some(vec![String::from("Non existent body Value")]),
+        );
+
+        assert!(!rule_2.process_packet(req)?);
 
         Ok(())
     }
