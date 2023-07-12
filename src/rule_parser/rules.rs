@@ -1,9 +1,11 @@
+extern crate dns_parser;
 use super::{pnet::packet::Packet, BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 
 #[macro_use]
 use crate::hashmap;
 
 use anyhow::anyhow;
+use dns_parser::QueryType;
 use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
 
@@ -41,7 +43,7 @@ enum ProtocolRule {
     Appllication(ApplicationProtocolRule),
 }
 
-// Enum type to represent transport layer
+// Enum to represent transport layer
 // protocol rules
 enum TransportProtocolRule {
     Icmp,
@@ -50,9 +52,34 @@ enum TransportProtocolRule {
     Udp,
 }
 
-// Enum type to represent HTTP Methods
+// Enum type to represent application layer
+// protocol rules
+enum ApplicationProtocolRule {
+    Http(HttpRule),
+    Dhcp,
+    Dns,
+}
+
+// Represents a vector of string patterns
+#[derive(Deserialize)]
+struct Patterns(Vec<String>);
+
+impl Patterns {
+    fn match_exists(&self, target: &[u8]) -> bool {
+        // Function that returns true if at least of one the string patterns are
+        // contained by `target`
+        for p in &self.0 {
+            if target.windows(p.len()).any(|window| window == p.as_bytes()) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+// Enum to represent HTTP Methods
 #[derive(Deserialize, Debug)]
-pub enum HttpMethod {
+enum HttpMethod {
     Get,
     Head,
     Post,
@@ -81,34 +108,119 @@ impl fmt::Display for HttpMethod {
 }
 
 trait ApplicationProtocol {
-    fn process_packet<'a>(&self, body: &[u8]) -> Result<bool>;
+    fn process_packet(&self, body: &[u8]) -> Result<bool>;
 }
 
 #[derive(Deserialize)]
-struct HttpRule {
-    method: Option<HttpMethod>,
-    headers_contain: Option<HashMap<String, String>>,
-    path_contains: Option<Patterns>,
-    body_contains: Option<Patterns>,
+enum DnsQueryType {
+    A,
+    Ns,
+    Mx,
+    Cname,
+    Soa,
+    Wks,
+    Ptr,
+    Minfo,
+    Aaaa,
+    Srv,
+    Axfr,
+    All,
 }
 
+// Struct to represent a DNS Rule
 #[derive(Deserialize)]
-struct Patterns(Vec<String>);
+pub struct DnsRule {
+    // Option-al Patterns struct of DNS query_names
+    // If it is None, then any DNS query name is matched
+    // Otherwise, if specified only requests that contain
+    // at least one of the patterns will match the rule
+    query_names: Option<Patterns>,
+    // Option-al vector of DNS Query Types
+    // If None, then any query type is matched
+    // Otherwise, the request must match at least one
+    // of the query types
+    query_types: Option<Vec<DnsQueryType>>,
+}
 
-impl Patterns {
-    fn match_exists(&self, target: &[u8]) -> bool {
-        for p in &self.0 {
-            if target.windows(p.len()).any(|window| window == p.as_bytes()) {
-                return true;
-            }
+impl DnsRule {
+    fn new(query_names: Option<Vec<String>>, query_types: Option<Vec<DnsQueryType>>) -> Self {
+        // Constructor of a DNS Rule
+        // Takes in all Option-al parameters and returns a new DnsRule struct
+        Self {
+            query_names: query_names.map(Patterns),
+            query_types,
         }
-        false
     }
 }
 
+impl ApplicationProtocol for DnsRule {
+    fn process_packet(&self, body: &[u8]) -> Result<bool> {
+        // Assumes that the packet is some kind of DNS Packet over UDP/53 or TCP/53
+        // though not necessarily a valid one
+        //
+        // The function parses the byte slice into a dns_parser::Packet struct using the
+        // dns_parser library. It returns an error if something went wrong during parsing
+        //
+        // All parameters in the Rule struct are optional, and if not explicitly provided,
+        // this function will skip those parameters
+        //
+        // For a request to return 'true' indicating that it matches the Rule struct provided,
+        // it must match all the fields and *at least one* of any subfields.
+        //
+        // Parse request
+        let dns_request = dns_parser::Packet::parse(body)?;
+        println!("{:#?}", dns_request);
+
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod dns_tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_process_packet() -> Result<()> {
+        let rule = DnsRule::new(Some(vec![String::from("malicious.com")]), None);
+        let mut builder = dns_parser::Builder::new_query(1, false);
+        builder.add_question(
+            "malicious.com",
+            false,
+            dns_parser::QueryType::A,
+            dns_parser::QueryClass::IN,
+        );
+        let dns_packet = builder.build().unwrap_or_else(|x| x);
+        assert!(rule.process_packet(&dns_packet)?);
+
+        Ok(())
+    }
+}
+
+// Struct to represent an HTTP rule
+#[derive(Deserialize)]
+pub struct HttpRule {
+    // Option-al HTTP method.
+    // If it is None then any HTTP method is allowed
+    // Otherwise, if it is specified only requests with
+    // that particular method match the rule
+    method: Option<HttpMethod>,
+    // Option-al HashMap of HTTP Headers and suspicious
+    // Header values. If it is None then any HTTP header
+    // matches the rule
+    headers_contain: Option<HashMap<String, String>>,
+    // Option-al Patterns struct that contains suspicious
+    // patterns that might exist in the URI path
+    path_contains: Option<Patterns>,
+    // Option-al Patterns struct that contains suspicious
+    // patterns that might exist in the Request body
+    body_contains: Option<Patterns>,
+}
+
 impl HttpRule {
-    // Constructor for HTTP Rule
     fn new(
+        // Constructor for HTTP Rule
+        // Takes in all Option-al parameters and returns a new
+        // HttpRule struct
         method: Option<HttpMethod>,
         headers_contain: Option<HashMap<String, String>>,
         path_patterns: Option<Vec<String>>,
@@ -117,20 +229,14 @@ impl HttpRule {
         Self {
             method,
             headers_contain,
-            path_contains: match path_patterns {
-                Some(p) => Some(Patterns { 0: p }),
-                None => None,
-            },
-            body_contains: match body_patterns {
-                Some(bp) => Some(Patterns { 0: bp }),
-                None => None,
-            },
+            path_contains: path_patterns.map(Patterns),
+            body_contains: body_patterns.map(Patterns),
         }
     }
 }
 
 impl ApplicationProtocol for HttpRule {
-    fn process_packet<'a>(&self, body: &[u8]) -> Result<bool> {
+    fn process_packet(&self, body: &[u8]) -> Result<bool> {
         // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
         // though not necessarily a valid one.
         //
@@ -149,13 +255,13 @@ impl ApplicationProtocol for HttpRule {
         let mut req = httparse::Request::new(&mut headers);
         let res = req.parse(body)?;
 
-        let mut conds = [true; 4];
-
         // Check the request method and see if it matches if one was provided in the Rules struct
         match req.method {
             Some(m) => {
                 if let Some(rm) = &self.method {
-                    conds[0] = m == rm.to_string();
+                    if m != rm.to_string() {
+                        return Ok(false);
+                    }
                 }
             }
             None => {
@@ -169,7 +275,9 @@ impl ApplicationProtocol for HttpRule {
         match req.path {
             Some(p) => {
                 if let Some(rp) = &self.path_contains {
-                    conds[1] = rp.match_exists(p.as_bytes());
+                    if !rp.match_exists(p.as_bytes()) {
+                        return Ok(false);
+                    }
                 }
             }
             None => {
@@ -182,18 +290,26 @@ impl ApplicationProtocol for HttpRule {
         // Check the headers and make sure at least one of the header values is
         // in the request. Quit early once this header is found
         if let Some(map) = &self.headers_contain {
+            let mut found = false;
             for (header, target) in map.iter() {
+                // Find a header with a matching name in the request
                 let value = req.headers.iter().find(|&x| x.name == header);
-                if let Some(found) = value {
-                    conds[2] = found
+                if let Some(fnd) = value {
+                    found = fnd
                         .value
                         .windows(target.len())
                         .any(|window| window == target.as_bytes());
                     // Break after the first match
-                    if conds[2] {
+                    if found {
                         break;
                     }
                 }
+            }
+
+            // If no headers with matching values could be found in the
+            // request, return false
+            if !found {
+                return Ok(false);
             }
         }
 
@@ -203,20 +319,14 @@ impl ApplicationProtocol for HttpRule {
         // are patterns in the rule the function should
         // return false
         if let Status::Complete(ofs) = res {
-            match &self.body_contains {
-                Some(bp) => {
-                    conds[3] = bp.match_exists(&body[ofs..]);
-                }
-                _ => {}
+            if let Some(bp) = &self.body_contains {
+                return Ok(bp.match_exists(&body[ofs..]));
             }
-        } else if let Some(bp) = &self.body_contains {
-            conds[3] = false;
+        } else if self.body_contains.is_some() {
+            return Ok(false);
         }
 
-        // Final check to see if all the sub-conditions are true
-        // Indicating that the HTTP request matches the rule struct
-
-        Ok(conds.iter().all(|&x| x))
+        Ok(true)
     }
 }
 
@@ -310,12 +420,4 @@ mod http_tests {
 
         Ok(())
     }
-}
-// Enum type to represent application layer
-// protocol rules
-// TODO: add more application layer protocols later
-enum ApplicationProtocolRule {
-    Http(HttpRule),
-    Dhcp,
-    Dns,
 }

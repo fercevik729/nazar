@@ -137,10 +137,10 @@ pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver) {
                 // If it is an ipv4 packet
                 if eth_packet.get_ethertype() == EtherTypes::Ipv4 {
                     let ipv4_packet = Ipv4Packet::new(eth_packet.payload()).unwrap();
-                    process_ipv4_packet(ipv4_packet);
+                    handle_ipv4_packet(ipv4_packet);
                 } else if eth_packet.get_ethertype() == EtherTypes::Ipv6 {
                     let ipv6_packet = Ipv6Packet::new(eth_packet.payload()).unwrap();
-                    process_ipv6_packet(ipv6_packet);
+                    handle_ipv6_packet(ipv6_packet);
                 }
             }
             Err(e) => {
@@ -217,17 +217,17 @@ fn handle_transport_protocol(
     payload: &[u8],
 ) {
     match protocol {
-        IpNextHeaderProtocols::Tcp => process_tcp_packet(src, dest, payload),
-        IpNextHeaderProtocols::Udp => process_udp_packet(src, dest, payload),
-        IpNextHeaderProtocols::Icmp => process_icmp_packet(src, dest, payload),
-        IpNextHeaderProtocols::Icmpv6 => process_icmpv6_packet(src, dest, payload),
+        IpNextHeaderProtocols::Tcp => handle_tcp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Udp => handle_udp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Icmp => handle_icmp_packet(src, dest, payload),
+        IpNextHeaderProtocols::Icmpv6 => handle_icmpv6_packet(src, dest, payload),
         _ => warn!("Unsupported protocol {}", protocol),
     }
 }
 
 fn handle_ipv4_packet(ipv4_packet: Ipv4Packet) {
     info!("Processing an ipv4 packet...");
-    process_transport_protocol(
+    handle_transport_protocol(
         IpAddr::V4(ipv4_packet.get_source()),
         IpAddr::V4(ipv4_packet.get_destination()),
         ipv4_packet.get_next_level_protocol(),
@@ -235,9 +235,9 @@ fn handle_ipv4_packet(ipv4_packet: Ipv4Packet) {
     )
 }
 
-fn handel_ipv6_packet(ipv6_packet: Ipv6Packet) {
+fn handle_ipv6_packet(ipv6_packet: Ipv6Packet) {
     info!("Processing an ipv6 packet...");
-    process_transport_protocol(
+    handle_transport_protocol(
         IpAddr::V6(ipv6_packet.get_source()),
         IpAddr::V6(ipv6_packet.get_destination()),
         ipv6_packet.get_next_header(),
