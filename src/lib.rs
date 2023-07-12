@@ -150,7 +150,7 @@ pub fn handle_pcap(rx: &mut dyn datalink::DataLinkReceiver) {
     }
 }
 
-fn process_tcp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
+fn handle_tcp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let tcp_packet = TcpPacket::new(packet);
     if let Some(tcp_packet) = tcp_packet {
         info!(
@@ -165,7 +165,7 @@ fn process_tcp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     }
 }
 
-fn process_udp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
+fn handle_udp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let udp_packet = UdpPacket::new(packet);
     if let Some(udp_packet) = udp_packet {
         info!(
@@ -180,7 +180,7 @@ fn process_udp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     }
 }
 
-fn process_icmp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
+fn handle_icmp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let icmp_packet = IcmpPacket::new(packet);
     if let Some(icmp_packet) = icmp_packet {
         info!(
@@ -195,7 +195,7 @@ fn process_icmp_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     }
 }
 
-fn process_icmpv6_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
+fn handle_icmpv6_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     let icmp_packet = Icmpv6Packet::new(packet);
     if let Some(icmp_packet) = icmp_packet {
         info!(
@@ -210,7 +210,7 @@ fn process_icmpv6_packet(src: IpAddr, dest: IpAddr, packet: &[u8]) {
     }
 }
 
-fn process_transport_protocol(
+fn handle_transport_protocol(
     src: IpAddr,
     dest: IpAddr,
     protocol: IpNextHeaderProtocol,
@@ -225,7 +225,7 @@ fn process_transport_protocol(
     }
 }
 
-fn process_ipv4_packet(ipv4_packet: Ipv4Packet) {
+fn handle_ipv4_packet(ipv4_packet: Ipv4Packet) {
     info!("Processing an ipv4 packet...");
     process_transport_protocol(
         IpAddr::V4(ipv4_packet.get_source()),
@@ -235,7 +235,7 @@ fn process_ipv4_packet(ipv4_packet: Ipv4Packet) {
     )
 }
 
-fn process_ipv6_packet(ipv6_packet: Ipv6Packet) {
+fn handel_ipv6_packet(ipv6_packet: Ipv6Packet) {
     info!("Processing an ipv6 packet...");
     process_transport_protocol(
         IpAddr::V6(ipv6_packet.get_source()),

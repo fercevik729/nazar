@@ -130,19 +130,20 @@ impl HttpRule {
 }
 
 impl ApplicationProtocol for HttpRule {
-    // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
-    // though not necessarily a valid one.
-    //
-    // The function parses the byte slice into a Request struct using the httparse
-    // library. It returns an error if something went wrong parsing the required
-    // fields of the HTTP request
-    //
-    // All parameters in the Rule struct are optional, and if not provided explicitly
-    // this function will not check the request for those parameters.
-    //
-    // For a request to return 'true' indicating that it matches the Rule struct provided
-    // it must match all the fields and *at least one* of their subfields as well as needed.
     fn process_packet<'a>(&self, body: &[u8]) -> Result<bool> {
+        // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
+        // though not necessarily a valid one.
+        //
+        // The function parses the byte slice into a Request struct using the httparse
+        // library. It returns an error if something went wrong parsing the required
+        // fields of the HTTP request
+        //
+        // All parameters in the Rule struct are optional, and if not provided explicitly
+        // this function will not check the request for those parameters.
+        //
+        // For a request to return 'true' indicating that it matches the Rule struct provided,
+        // it must match all the fields and *at least one* of their subfields as well as needed.
+        //
         // Parse request
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
@@ -150,7 +151,7 @@ impl ApplicationProtocol for HttpRule {
 
         let mut conds = [true; 4];
 
-        // Check the request method
+        // Check the request method and see if it matches if one was provided in the Rules struct
         match req.method {
             Some(m) => {
                 if let Some(rm) = &self.method {
