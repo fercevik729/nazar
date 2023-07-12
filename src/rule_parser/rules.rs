@@ -1,6 +1,6 @@
 use super::{pnet::packet::Packet, BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 use anyhow::anyhow;
-use pnet::packet::tcp::TcpPacket;
+use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
 
 #[derive(Deserialize)]
@@ -77,50 +77,82 @@ impl fmt::Display for HttpMethod {
 }
 
 trait ApplicationProtocol {
-    type PacketType<'a>;
-
-    fn process_packet<'a>(&self, packet: Self::PacketType<'a>) -> Result<bool>;
+    fn process_packet<'a>(&self, body: &[u8]) -> Result<bool>;
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct HttpRule {
     method: Option<HttpMethod>,
     headers_contain: Option<HashMap<String, String>>,
-    path_contains: Option<String>,
+    path_contains: Option<Patterns>,
+    body_contains: Option<Patterns>,
+}
+
+#[derive(Deserialize)]
+struct Patterns(Vec<String>);
+
+impl Patterns {
+    fn match_exists(&self, target: &[u8]) -> bool {
+        for p in &self.0 {
+            if target.windows(p.len()).any(|window| window == p.as_bytes()) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl HttpRule {
     // Constructor for HTTP Rule
-    fn new(method: HttpMethod, headers: HashMap<String, String>, pattern: String) -> Self {
+    fn new(
+        method: Option<HttpMethod>,
+        headers_contain: Option<HashMap<String, String>>,
+        path_patterns: Option<Vec<String>>,
+        body_patterns: Option<Vec<String>>,
+    ) -> Self {
         Self {
-            method: Some(method),
-            headers_contain: Some(headers),
-            path_contains: Some(pattern),
+            method,
+            headers_contain,
+            path_contains: match path_patterns {
+                Some(p) => Some(Patterns { 0: p }),
+                None => None,
+            },
+            body_contains: match body_patterns {
+                Some(bp) => Some(Patterns { 0: bp }),
+                None => None,
+            },
         }
     }
 }
 
 impl ApplicationProtocol for HttpRule {
-    type PacketType<'a> = TcpPacket<'a>;
-
-    // Assumes that packet is an HTTP packet on port 80 or 8080
-    // Parse it using the httparse library
-    fn process_packet<'a>(&self, packet: Self::PacketType<'a>) -> Result<bool> {
+    // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
+    // though not necessarily a valid one.
+    //
+    // The function parses the byte slice into a Request struct using the httparse
+    // library. It returns an error if something went wrong parsing the required
+    // fields of the HTTP request
+    //
+    // All parameters in the Rule struct are optional, and if not provided explicitly
+    // this function will not check the request for those parameters.
+    //
+    // For a request to return 'true' indicating that it matches the Rule struct provided
+    // it must match all the fields and at least one of their subfields as well. For example,
+    // if a rule parameter is a `vec` then the request must match at least one of the values
+    // that is contained with the `vec`.
+    fn process_packet<'a>(&self, body: &[u8]) -> Result<bool> {
         // Parse request
-        let body = packet.payload();
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
-        req.parse(body)?;
+        let res = req.parse(body)?;
 
-        let mut conds = [true; 3];
+        let mut conds = [true; 4];
 
         // Check the request method
         match req.method {
             Some(m) => {
                 if let Some(rm) = &self.method {
-                    if m != rm.to_string() {
-                        conds[0] = false;
-                    }
+                    conds[0] = m == rm.to_string();
                 }
             }
             None => {
@@ -129,13 +161,11 @@ impl ApplicationProtocol for HttpRule {
                 ))
             }
         };
-        // Check the request body
+        // Check the request path
         match req.path {
             Some(p) => {
                 if let Some(rp) = &self.path_contains {
-                    if p != rp {
-                        conds[1] = false;
-                    }
+                    conds[1] = rp.match_exists(p.as_bytes());
                 }
             }
             None => {
@@ -145,7 +175,8 @@ impl ApplicationProtocol for HttpRule {
             }
         };
 
-        // Check the headers
+        // Check the headers and make sure at least one of the header values is
+        // in the request
         if let Some(map) = &self.headers_contain {
             for (header, target) in map.iter() {
                 let value = req.headers.iter().find(|&x| x.name == header);
@@ -154,6 +185,7 @@ impl ApplicationProtocol for HttpRule {
                         .value
                         .windows(target.len())
                         .any(|window| window == target.as_bytes());
+                    // Break after the first match
                     if conds[2] {
                         break;
                     }
@@ -161,10 +193,47 @@ impl ApplicationProtocol for HttpRule {
             }
         }
 
-        Ok(conds.iter().all(|&c| c))
+        // Check the request body for the pattern
+        if let Status::Complete(ofs) = res {
+            match &self.body_contains {
+                Some(bp) => {
+                    conds[3] = bp.match_exists(&body[ofs..]);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(conds.iter().all(|&x| x))
     }
 }
 
+#[cfg(test)]
+mod http_tests {
+    use super::{ApplicationProtocol, HttpMethod, HttpRule, Result};
+
+    #[test]
+    fn test_http_process_packet() -> Result<()> {
+        let req = b"POST nazar.com/api/user HTTP/1.1\r\n\
+                        Host: example.com\r\n\
+                        Content-Type: application/json\r\n\
+                        Content-Length: 25\r\n\
+                        \r\n\
+                        {\"username\":\"john\",\"password\":\"secret\"}";
+
+        let rule = HttpRule::new(Some(HttpMethod::Post), None, None, None);
+        assert!(rule.process_packet(req)?);
+
+        let rule_2 = HttpRule::new(
+            Some(HttpMethod::Post),
+            None,
+            None,
+            Some(vec![String::from("secret"), String::from("missing")]),
+        );
+        assert!(rule_2.process_packet(req)?);
+
+        Ok(())
+    }
+}
 // Enum type to represent application layer
 // protocol rules
 // TODO: add more application layer protocols later
