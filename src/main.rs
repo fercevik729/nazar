@@ -49,14 +49,6 @@ fn main() -> Result<()> {
         }
     };
 
-    // Logging with log4rs
-    let log_path = args
-        .outlog
-        .unwrap_or_else(|| std::path::PathBuf::from("logs"));
-    println!("Setting up logging in {:?} dir...", log_path);
-    nazar::setup_logging(log_path, 5, 5 * 1024)?;
-    println!("Done setting up logging...");
-
     // Rules file
     if !nazar::validate_file_ext(&args.rules, "toml") {
         return Err(anyhow!("rules file must be a .toml file"));
@@ -69,6 +61,15 @@ fn main() -> Result<()> {
     })?;
     let mut _buf = BufReader::new(rules_file);
     println!("Reading rules from `{}`...", args.rules.display());
+
+    // Logging with log4rs
+    let log_path = args
+        .outlog
+        .unwrap_or_else(|| std::path::PathBuf::from("logs"));
+
+    println!("Setting up logging in {:?} dir...", log_path);
+    nazar::setup_logging(log_path, 5, 5 * 1024)?;
+    println!("Done setting up logging...");
 
     // Packet capture
     println!("Initiating packet capture on interface {}...", iface);

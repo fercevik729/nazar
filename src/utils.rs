@@ -1,3 +1,5 @@
+// Utility functions and macros used for unit tests and
+// in some core feature implementations
 mod test_macros {
     use std::collections::HashMap;
 

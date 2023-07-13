@@ -9,6 +9,8 @@ use assert_fs::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
 
+mod utils;
+
 #[test]
 fn rules_file_doesnt_exist() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
@@ -17,7 +19,6 @@ fn rules_file_doesnt_exist() -> Result<()> {
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("No rules file"));
-
     Ok(())
 }
 
@@ -30,7 +31,7 @@ fn invalid_rules_file_ext() -> Result<()> {
         .failure()
         .stderr(predicate::str::contains("rules file must be a .toml file"));
 
-    Ok(())
+    utils::post_test_cleanup("logs")
 }
 
 #[test]
