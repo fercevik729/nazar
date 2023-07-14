@@ -111,8 +111,8 @@ trait ApplicationProtocol {
     fn process_packet(&self, body: &[u8]) -> Result<bool>;
 }
 
-#[derive(Deserialize)]
-enum DnsQueryType {
+#[derive(Deserialize, Debug)]
+enum DnsType {
     A,
     Ns,
     Mx,
@@ -135,20 +135,30 @@ pub struct DnsRule {
     // Otherwise, if specified only requests that contain
     // at least one of the patterns will match the rule
     query_names: Option<Patterns>,
-    // Option-al vector of DNS Query Types
+    // Option-al vector of DNS Types to represent Query types
     // If None, then any query type is matched
     // Otherwise, the request must match at least one
     // of the query types
-    query_types: Option<Vec<DnsQueryType>>,
+    query_types: Option<Vec<DnsType>>,
+    // Option-al vector of DNS Types to represent Record types
+    // If None, then any resource type is matched
+    // Otherwise, the request must match at least one of the query
+    // types
+    record_types: Option<Vec<DnsType>>,
 }
 
 impl DnsRule {
-    fn new(query_names: Option<Vec<String>>, query_types: Option<Vec<DnsQueryType>>) -> Self {
+    fn new(
+        query_names: Option<Vec<String>>,
+        query_types: Option<Vec<DnsType>>,
+        record_types: Option<Vec<DnsType>>,
+    ) -> Self {
         // Constructor of a DNS Rule
         // Takes in all Option-al parameters and returns a new DnsRule struct
         Self {
             query_names: query_names.map(Patterns),
             query_types,
+            record_types,
         }
     }
 
@@ -158,22 +168,44 @@ impl DnsRule {
         // otherwise false. If query_types is None it returns true
         if let Some(query_types) = &self.query_types {
             return query_types.iter().any(|q| match q {
-                DnsQueryType::A => target_query_type == dns_parser::QueryType::A,
-                DnsQueryType::Ns => target_query_type == dns_parser::QueryType::NS,
-                DnsQueryType::Mx => target_query_type == dns_parser::QueryType::MX,
-                DnsQueryType::Cname => target_query_type == dns_parser::QueryType::CNAME,
-                DnsQueryType::Soa => target_query_type == dns_parser::QueryType::SOA,
-                DnsQueryType::Wks => target_query_type == dns_parser::QueryType::WKS,
-                DnsQueryType::Ptr => target_query_type == dns_parser::QueryType::PTR,
-                DnsQueryType::Minfo => target_query_type == dns_parser::QueryType::MINFO,
-                DnsQueryType::Aaaa => target_query_type == dns_parser::QueryType::AAAA,
-                DnsQueryType::Srv => target_query_type == dns_parser::QueryType::SRV,
-                DnsQueryType::Axfr => target_query_type == dns_parser::QueryType::AXFR,
-                DnsQueryType::All => target_query_type == dns_parser::QueryType::All,
+                DnsType::A => target_query_type == dns_parser::QueryType::A,
+                DnsType::Ns => target_query_type == dns_parser::QueryType::NS,
+                DnsType::Mx => target_query_type == dns_parser::QueryType::MX,
+                DnsType::Cname => target_query_type == dns_parser::QueryType::CNAME,
+                DnsType::Soa => target_query_type == dns_parser::QueryType::SOA,
+                DnsType::Wks => target_query_type == dns_parser::QueryType::WKS,
+                DnsType::Ptr => target_query_type == dns_parser::QueryType::PTR,
+                DnsType::Minfo => target_query_type == dns_parser::QueryType::MINFO,
+                DnsType::Aaaa => target_query_type == dns_parser::QueryType::AAAA,
+                DnsType::Srv => target_query_type == dns_parser::QueryType::SRV,
+                DnsType::Axfr => target_query_type == dns_parser::QueryType::AXFR,
+                DnsType::All => target_query_type == dns_parser::QueryType::All,
             });
         }
 
-        // If no qtypes are specified in the rule, simply return true
+        // Return true if no query types are specified
+        true
+    }
+
+    fn rtype_matches(&self, target_resource_type: &dns_parser::RData) -> bool {
+        // A helper method that iterates over all the record data types in the rule
+        // and sees if any match the target_resource_type. If so it returns true
+        // otherwise false.
+        if let Some(r_types) = &self.record_types {
+            return r_types.iter().any(|r| match r {
+                DnsType::A => matches!(target_resource_type, dns_parser::RData::A(_)),
+                DnsType::Ns => matches!(target_resource_type, dns_parser::RData::NS(_)),
+                DnsType::Mx => matches!(target_resource_type, dns_parser::RData::MX(_)),
+                DnsType::Cname => matches!(target_resource_type, dns_parser::RData::CNAME(_)),
+                DnsType::Soa => matches!(target_resource_type, dns_parser::RData::SOA(_)),
+                DnsType::Ptr => matches!(target_resource_type, dns_parser::RData::PTR(_)),
+                DnsType::Aaaa => matches!(target_resource_type, dns_parser::RData::AAAA(_)),
+                DnsType::Srv => matches!(target_resource_type, dns_parser::RData::SRV(_)),
+                _ => false,
+            });
+        }
+
+        // Return true if no record types are specified
         true
     }
 }
@@ -194,7 +226,6 @@ impl ApplicationProtocol for DnsRule {
         //
         // Parse request
         let dns_request = dns_parser::Packet::parse(body)?;
-
         // Iterate over all the questions in the DNS packet and see if any match
         // the patterns specified in the DNS rule
         let questions = dns_request.questions;
@@ -208,7 +239,25 @@ impl ApplicationProtocol for DnsRule {
         }
         // Iterate over all the questions in the DNS packet and see if any match
         // one of the query types specified in the DNS Rule
-        Ok(questions.iter().any(|q| self.qtype_matches(q.qtype)))
+        if self.query_types.is_some() {
+            if !questions.iter().any(|q| self.qtype_matches(q.qtype)) {
+                return Ok(false);
+            }
+        }
+
+        // Iterate over all the answer records in the DNS packet and see if any match
+        // one of the record types specified in the DNS Rule
+        if self.record_types.is_some() {
+            if !dns_request
+                .answers
+                .iter()
+                .any(|a| self.rtype_matches(&a.data))
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }
 
@@ -220,7 +269,8 @@ mod dns_tests {
     fn test_dns_process_packet_1() -> Result<()> {
         let rule = DnsRule::new(
             Some(vec![String::from("malicious.com")]),
-            Some(vec![DnsQueryType::A]),
+            Some(vec![DnsType::A]),
+            None,
         );
         let mut builder = dns_parser::Builder::new_query(1, false);
         builder.add_question(
@@ -252,7 +302,8 @@ mod dns_tests {
                 String::from("suspicious.com"),
                 String::from("evil.com"),
             ]),
-            Some(vec![DnsQueryType::Aaaa, DnsQueryType::Soa]),
+            Some(vec![DnsType::Aaaa, DnsType::Soa]),
+            None,
         );
         let mut builder = dns_parser::Builder::new_query(1, false);
         builder.add_question(
@@ -264,6 +315,51 @@ mod dns_tests {
         let dns_packet = builder.build().unwrap_or_else(|x| x);
         assert!(rule.process_packet(&dns_packet)?);
 
+        let mut builder2 = dns_parser::Builder::new_query(1, false);
+        builder2.add_question(
+            "malicious.com",
+            false,
+            dns_parser::QueryType::A,
+            dns_parser::QueryClass::IN,
+        );
+        let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
+
+        assert!(!rule.process_packet(&dns_packet2)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dns_process_packet_3() -> Result<()> {
+        let rule = DnsRule::new(
+            Some(vec![
+                String::from("suspicious.com"),
+                String::from("malicious.net"),
+            ]),
+            Some(vec![DnsType::A, DnsType::Aaaa]),
+            Some(vec![DnsType::A]),
+        );
+
+        let mut builder = dns_parser::Builder::new_query(1, false);
+        builder.add_question(
+            "malicious.net",
+            false,
+            dns_parser::QueryType::A,
+            dns_parser::QueryClass::IN,
+        );
+        let dns_packet = builder.build().unwrap_or_else(|x| x);
+        assert!(!rule.process_packet(&dns_packet)?);
+
+        let mut builder2 = dns_parser::Builder::new_query(1, false);
+        builder2.add_question(
+            "malicious.com",
+            false,
+            dns_parser::QueryType::A,
+            dns_parser::QueryClass::IN,
+        );
+        let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
+
+        assert!(!rule.process_packet(&dns_packet2)?);
         Ok(())
     }
 }
