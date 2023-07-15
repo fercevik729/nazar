@@ -15,7 +15,7 @@ pub trait Validate {
 }
 
 // A struct to handle inclusive IP address ranges
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct IpRange {
     begin: Ipv6Addr,
     end: Option<Ipv6Addr>,
@@ -149,14 +149,14 @@ mod iprange_tests {
 // To be used with the BWList struct
 // to specify which ports are allowed/forbidden
 // to be crossed during a connection
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct PortRange {
     begin: i32,
     end: Option<i32>,
 }
 
 impl PortRange {
-    fn new(begin: i32, end: Option<i32>) -> Result<Self> {
+    pub fn new(begin: i32, end: Option<i32>) -> Result<Self> {
         // Validate the port numbers are within the 0 to 65536 range
         let valid_ports = 0..=65536;
         if !(valid_ports).contains(&begin) {
@@ -195,8 +195,7 @@ impl Validate for PortRange {
 mod portrange_tests {
     use super::*;
 
-    #[macro_use]
-    use crate::{assert_ok, assert_err};
+    use crate::{assert_err, assert_ok};
 
     #[test]
     fn new_two_endpoints() {
@@ -268,7 +267,7 @@ mod portrange_tests {
 }
 
 // Enum to represent Transport layer protocols
-#[derive(Deserialize, Clone, Copy, Debug)]
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -325,7 +324,7 @@ mod protocol_tests {
 // for ports
 // for protocols
 #[derive(Deserialize, Debug, PartialEq)]
-pub enum BWList<T: Validate> {
+pub enum BWList<T: Validate + PartialEq> {
     WhiteList(Vec<T>),
     BlackList(Vec<T>),
 }
@@ -412,6 +411,13 @@ mod bwlist_tests {
             PortRange::new(103, Some(195))?,
             PortRange::new(202, Some(212))?,
         ]);
+
+        assert!(wl.is_valid_item(81));
+        assert!(!wl.is_valid_item(79));
+        assert!(wl.is_valid_item(94));
+        assert!(!wl.is_valid_item(100));
+        assert!(!wl.is_valid_item(196));
+        assert!(wl.is_valid_item(211));
 
         Ok(())
     }
