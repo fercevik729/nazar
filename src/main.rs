@@ -6,36 +6,30 @@ use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
-pub mod rule_parser;
-pub mod utils;
-
 #[derive(Parser, Debug)]
 #[command(name = "nazar")]
 #[command(author = "Furkan E. <f.ercevik21@gmail.com>")]
 #[command(version = "0.1.0")]
 #[command(about = "A simple packet sniffing and intrusion detection program")]
 struct Args {
-    // Name of the interface to perform packet sniffing on
-    // If not provided, the program will try to find the first non-loopback
-    // interface
+    /// Name of the interface to perform sniff packets on
     #[arg(short, long)]
     iface: Option<String>,
 
-    // Path to file containing the rules
+    /// Path to file containing the rule config
     #[arg(short, long, value_name = "FILE")]
     rules: PathBuf,
 
-    // Path to directory to output log files
-    // If not provided, the program will write logs in a 'logs' directory in the
-    // current working directory
+    /// Path to directory to output log files
     #[arg(short, long, value_name = "DIR")]
     outlog: Option<PathBuf>,
 
-    // Flag indicating if the intrusion system should dynamically update its rule
-    // or keep them static (default)
+    /// Flag indicating if the IDS should dynamically update its rules
     #[arg(short, long)]
     dynamic: bool,
 }
+
+// TODO: add subcommands to do simple port scans
 
 fn main() -> Result<()> {
     let args = Args::parse();

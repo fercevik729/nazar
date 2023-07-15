@@ -34,7 +34,7 @@ use pnet::{
 pub mod rule_parser;
 pub mod utils;
 
-use rule_parser::rules::Rules;
+use rule_parser::rules::RuleConfig;
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -58,7 +58,7 @@ pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
 }
 
 // Parses a rule file ending in .json
-pub fn parse_rules(filepath: &Path) -> Result<Box<Rules>> {
+pub fn parse_rules(filepath: &Path) -> Result<Box<RuleConfig>> {
     // Validate rules file extension
     // Currently only supports toml
     if !validate_file_ext(filepath, "json") {
@@ -75,7 +75,7 @@ pub fn parse_rules(filepath: &Path) -> Result<Box<Rules>> {
         .with_context(|| format!("Couldn't read contents from {}", &filepath.display()))?;
 
     // Try deserializing json file
-    let rules: Rules = serde_json::from_str(&contents)
+    let rules: RuleConfig = serde_json::from_str(&contents)
         .with_context(|| "Couldn't deserialize into Rule struct".to_string())?;
 
     // Return rules wrapped by a box

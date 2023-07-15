@@ -5,11 +5,12 @@ use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
 
 #[derive(Deserialize, Debug)]
-pub struct Rules {
-    src_ip_list: BWList<IpRange>,
-    dest_ip_list: Option<BWList<IpRange>>,
-    port_list: Option<BWList<PortRange>>,
-    protoc_list: Option<BWList<Protocol>>,
+pub struct RuleConfig {
+    pub src_ip_list: Option<BWList<IpRange>>,
+    pub dest_ip_list: Option<BWList<IpRange>>,
+    pub port_list: Option<BWList<PortRange>>,
+    pub protoc_list: Option<BWList<Protocol>>,
+    pub rules: Option<Vec<Rule>>,
 }
 
 // Enum used to represent intrusion detection system

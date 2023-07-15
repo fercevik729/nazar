@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 
 pub mod rules;
 
-trait Validate {
+pub trait Validate {
     type Item: Copy;
 
     // A function to check if an item `other` is considered valid
@@ -16,13 +16,13 @@ trait Validate {
 
 // A struct to handle inclusive IP address ranges
 #[derive(Deserialize, PartialEq, Debug)]
-struct IpRange {
+pub struct IpRange {
     begin: Ipv6Addr,
     end: Option<Ipv6Addr>,
 }
 impl IpRange {
     // Creates an IpRange struct of the `begin` and `end` parameters
-    fn new(begin: IpAddr, end: Option<IpAddr>) -> Result<Self> {
+    pub fn new(begin: IpAddr, end: Option<IpAddr>) -> Result<Self> {
         // Match statements to ensure IpAddresses are converted to v6
         let begin_ip = match begin {
             IpAddr::V4(ip) => ip.to_ipv6_mapped(),
@@ -78,13 +78,9 @@ impl Validate for IpRange {
 mod iprange_tests {
     use super::*;
 
-    #[macro_use]
-    use crate::{assert_ok, assert_err};
+    use crate::{assert_err, assert_ok};
 
-    use std::{
-        net::{IpAddr, Ipv4Addr, Ipv6Addr},
-        str::FromStr,
-    };
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn new_two_endpoints() {
@@ -154,7 +150,7 @@ mod iprange_tests {
 // to specify which ports are allowed/forbidden
 // to be crossed during a connection
 #[derive(Deserialize, Debug, PartialEq)]
-struct PortRange {
+pub struct PortRange {
     begin: i32,
     end: Option<i32>,
 }
@@ -273,7 +269,7 @@ mod portrange_tests {
 
 // Enum to represent Transport layer protocols
 #[derive(Deserialize, Clone, Copy, Debug)]
-enum Protocol {
+pub enum Protocol {
     Tcp,
     Udp,
     Icmp,
@@ -328,8 +324,8 @@ mod protocol_tests {
 // for src/dest IP addresses
 // for ports
 // for protocols
-#[derive(Deserialize, Debug)]
-enum BWList<T: Validate> {
+#[derive(Deserialize, Debug, PartialEq)]
+pub enum BWList<T: Validate> {
     WhiteList(Vec<T>),
     BlackList(Vec<T>),
 }
@@ -349,10 +345,8 @@ mod bwlist_tests {
     use anyhow::Result;
 
     use super::*;
-    #[macro_use]
-    use crate::{assert_ok, assert_err};
 
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn whitelist_ip_tests() -> Result<()> {
