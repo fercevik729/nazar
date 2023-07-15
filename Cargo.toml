@@ -14,6 +14,8 @@ log = "0.4.19"
 log4rs = { version = "1.2.0", features = ["gzip"] }
 pnet = "0.33.0"
 serde = {version = "1.0.167", features = ["derive"]}
+serde_json = "1.0.102"
+serde_yaml = "0.9.22"
 toml = "0.7.6"
 
 [dev-dependencies]

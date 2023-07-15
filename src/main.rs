@@ -1,7 +1,3 @@
-extern crate anyhow;
-extern crate clap;
-extern crate log;
-
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -34,6 +30,11 @@ struct Args {
     // current working directory
     #[arg(short, long, value_name = "DIR")]
     outlog: Option<PathBuf>,
+
+    // Flag indicating if the intrusion system should dynamically update its rule
+    // or keep them static (default)
+    #[arg(short, long)]
+    dynamic: bool,
 }
 
 fn main() -> Result<()> {
@@ -48,6 +49,8 @@ fn main() -> Result<()> {
             ))
         }
     };
+
+    println!("Dynamic: {}", args.dynamic);
 
     // Rules file
     if !nazar::validate_file_ext(&args.rules, "toml") {

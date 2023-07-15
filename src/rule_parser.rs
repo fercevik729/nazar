@@ -1,8 +1,3 @@
-extern crate anyhow;
-extern crate pnet;
-extern crate serde;
-extern crate toml;
-
 use std::net::{IpAddr, Ipv6Addr};
 
 use serde::Deserialize;
@@ -277,7 +272,7 @@ mod portrange_tests {
 }
 
 // Enum to represent Transport layer protocols
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, Debug)]
 enum Protocol {
     Tcp,
     Udp,
@@ -333,7 +328,7 @@ mod protocol_tests {
 // for src/dest IP addresses
 // for ports
 // for protocols
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 enum BWList<T: Validate> {
     WhiteList(Vec<T>),
     BlackList(Vec<T>),

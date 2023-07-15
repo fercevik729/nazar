@@ -1,17 +1,12 @@
-extern crate dns_parser;
-use super::{pnet::packet::Packet, BWList, Deserialize, IpRange, PortRange, Protocol, Result};
-
-#[macro_use]
-use crate::hashmap;
+use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 
 use anyhow::anyhow;
-use dns_parser::QueryType;
 use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
 
-#[derive(Deserialize)]
-struct Rules {
-    src_ip_list: Option<BWList<IpRange>>,
+#[derive(Deserialize, Debug)]
+pub struct Rules {
+    src_ip_list: BWList<IpRange>,
     dest_ip_list: Option<BWList<IpRange>>,
     port_list: Option<BWList<PortRange>>,
     protoc_list: Option<BWList<Protocol>>,
@@ -20,6 +15,7 @@ struct Rules {
 // Enum used to represent intrusion detection system
 // actions
 // TODO: implement Action-specific packet processing functions
+#[derive(Deserialize, Debug)]
 pub enum IdsAction {
     Alert,
     Log,
@@ -29,7 +25,8 @@ pub enum IdsAction {
     Blacklist,
 }
 
-struct Rule {
+#[derive(Deserialize, Debug)]
+pub struct Rule {
     src_ip: Option<IpAddr>,
     src_port: Option<i32>,
     dest_ip: Option<IpAddr>,
@@ -38,14 +35,16 @@ struct Rule {
     action: IdsAction,
 }
 
-enum ProtocolRule {
+#[derive(Deserialize, Debug)]
+pub enum ProtocolRule {
     Transport(TransportProtocolRule),
-    Appllication(ApplicationProtocolRule),
+    Application(ApplicationProtocolRule),
 }
 
 // Enum to represent transport layer
 // protocol rules
-enum TransportProtocolRule {
+#[derive(Deserialize, Debug)]
+pub enum TransportProtocolRule {
     Icmp,
     Icmpv6,
     Tcp,
@@ -54,14 +53,15 @@ enum TransportProtocolRule {
 
 // Enum type to represent application layer
 // protocol rules
-enum ApplicationProtocolRule {
+#[derive(Deserialize, Debug)]
+pub enum ApplicationProtocolRule {
     Http(HttpRule),
     Dhcp,
     Dns,
 }
 
 // Represents a vector of string patterns
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Patterns(Vec<String>);
 
 impl Patterns {
@@ -128,7 +128,7 @@ enum DnsType {
 }
 
 // Struct to represent a DNS Rule
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct DnsRule {
     // Option-al Patterns struct of DNS query_names
     // If it is None, then any DNS query name is matched
@@ -239,22 +239,19 @@ impl ApplicationProtocol for DnsRule {
         }
         // Iterate over all the questions in the DNS packet and see if any match
         // one of the query types specified in the DNS Rule
-        if self.query_types.is_some() {
-            if !questions.iter().any(|q| self.qtype_matches(q.qtype)) {
-                return Ok(false);
-            }
+        if self.query_types.is_some() && !questions.iter().any(|q| self.qtype_matches(q.qtype)) {
+            return Ok(false);
         }
 
         // Iterate over all the answer records in the DNS packet and see if any match
         // one of the record types specified in the DNS Rule
-        if self.record_types.is_some() {
-            if !dns_request
+        if self.record_types.is_some()
+            && !dns_request
                 .answers
                 .iter()
                 .any(|a| self.rtype_matches(&a.data))
-            {
-                return Ok(false);
-            }
+        {
+            return Ok(false);
         }
 
         Ok(true)
@@ -365,7 +362,7 @@ mod dns_tests {
 }
 
 // Struct to represent an HTTP rule
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct HttpRule {
     // Option-al HTTP method.
     // If it is None then any HTTP method is allowed

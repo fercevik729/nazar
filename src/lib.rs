@@ -1,9 +1,5 @@
-extern crate anyhow;
-extern crate log;
-extern crate pnet;
-
 use std::fs::{create_dir, File};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::{ffi::OsStr, net::IpAddr};
 
@@ -19,6 +15,7 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::filter::threshold::ThresholdFilter;
 use log4rs::{self, Config};
 
+use anyhow::{anyhow, Context, Result};
 use pnet::packet::icmp::IcmpPacket;
 use pnet::packet::icmpv6::Icmpv6Packet;
 use pnet::packet::ip::{IpNextHeaderProtocol, IpNextHeaderProtocols};
@@ -34,7 +31,10 @@ use pnet::{
     },
 };
 
-use anyhow::{anyhow, Context, Result};
+pub mod rule_parser;
+pub mod utils;
+
+use rule_parser::rules::Rules;
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -55,6 +55,31 @@ pub fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
 // Validates a file's extension against the provided `ext` parameter
 pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
     filepath.extension() == Some(OsStr::new(ext))
+}
+
+// Parses a rule file ending in .json
+pub fn parse_rules(filepath: &Path) -> Result<Box<Rules>> {
+    // Validate rules file extension
+    // Currently only supports toml
+    if !validate_file_ext(filepath, "json") {
+        return Err(anyhow!("rules file must be a .json file"));
+    }
+    // Try opening the file
+    let mut rules_file = File::open(filepath)
+        .with_context(|| format!("No rules file of the name `{}` exists", &filepath.display()))?;
+
+    // Try reading the contents of the file
+    let mut contents = String::new();
+    rules_file
+        .read_to_string(&mut contents)
+        .with_context(|| format!("Couldn't read contents from {}", &filepath.display()))?;
+
+    // Try deserializing json file
+    let rules: Rules = serde_json::from_str(&contents)
+        .with_context(|| "Couldn't deserialize into Rule struct".to_string())?;
+
+    // Return rules wrapped by a box
+    Ok(Box::new(rules))
 }
 
 pub struct PCap<'a> {
@@ -247,6 +272,7 @@ fn handle_ipv6_packet(ipv6_packet: Ipv6Packet) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::path::PathBuf;
 
     use crate::validate_file_ext;
