@@ -1,15 +1,21 @@
 use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 
 use anyhow::anyhow;
+use etherparse::{self, Icmpv4Type};
 use httparse::Status;
 use std::{collections::HashMap, fmt, net::IpAddr};
 
 #[derive(Deserialize, Debug)]
 pub struct RuleConfig {
-    pub src_ip_list: Option<BWList<IpRange>>,
-    pub dest_ip_list: Option<BWList<IpRange>>,
+    /// Option-al blacklist or whitelist of source
+    /// and destination IP Addresses
+    pub ip_list: Option<BWList<IpRange>>,
+    /// Option-al blacklist or whitelist of source
+    /// and destination ports
     pub port_list: Option<BWList<PortRange>>,
-    pub protoc_list: Option<BWList<Protocol>>,
+    /// Option-al blacklist or whitelist of protocols
+    pub protocol_list: Option<BWList<Protocol>>,
+    /// Option-al vector of user-defined rules
     pub rules: Option<Vec<Rule>>,
 }
 
@@ -38,27 +44,14 @@ pub struct Rule {
 
 #[derive(Deserialize, Debug)]
 pub enum ProtocolRule {
-    Transport(TransportProtocolRule),
-    Application(ApplicationProtocolRule),
-}
-
-// Enum to represent transport layer
-// protocol rules
-#[derive(Deserialize, Debug)]
-pub enum TransportProtocolRule {
-    Icmp,
+    // Transport Protocols
+    Icmp(IcmpRule),
     Icmpv6,
     Tcp,
     Udp,
-}
-
-// Enum type to represent application layer
-// protocol rules
-#[derive(Deserialize, Debug)]
-pub enum ApplicationProtocolRule {
+    // Application Protocols
     Http(HttpRule),
-    Dhcp,
-    Dns,
+    Dns(DnsRule),
 }
 
 // Represents a vector of string patterns
@@ -78,38 +71,146 @@ impl Patterns {
     }
 }
 
-// Enum to represent HTTP Methods
-#[derive(Deserialize, Debug)]
-enum HttpMethod {
-    Get,
-    Head,
-    Post,
-    Put,
-    Patch,
-    Delete,
-    Connection,
-    Options,
-    Trace,
+// A trait indicating that the type which implements is capable of processing request packets
+trait ProcessPacket {
+    fn process(&self, body: &[u8]) -> Result<bool>;
 }
 
-impl fmt::Display for HttpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Get => write!(f, "GET"),
-            Self::Head => write!(f, "HEAD"),
-            Self::Post => write!(f, "POST"),
-            Self::Put => write!(f, "PUT"),
-            Self::Patch => write!(f, "PATCH"),
-            Self::Delete => write!(f, "DELETE"),
-            Self::Connection => write!(f, "CONNECTION"),
-            Self::Options => write!(f, "OPTIONS"),
-            Self::Trace => write!(f, "TRACE"),
+// Enum representing the different kinds of ICMPv6 Requests
+#[derive(Deserialize, Debug)]
+enum Icmpv6Type {
+    DestinationUnreachable,
+    PacketTooBig,
+    TimeExceeded,
+    ParameterProblem,
+    EchoRequest,
+    EchoReply,
+    Unknown,
+}
+
+// Struct representing a rule to match against ICMPv6 packets
+#[derive(Deserialize, Debug)]
+pub struct Icmpv6Rule {
+    icmpv6_types: Option<Vec<Icmpv6Type>>,
+    icmpv6_codes: Option<Vec<u8>>,
+}
+
+impl Icmpv6Rule {
+    fn new(icmpv6_types: Option<Vec<Icmpv6Type>>, icmpv6_codes: Option<Vec<u8>>) -> Self {
+        Self {
+            icmpv6_types,
+            icmpv6_codes,
         }
     }
 }
 
-trait ApplicationProtocol {
-    fn process_packet(&self, body: &[u8]) -> Result<bool>;
+fn match_icmpv6_types(curr: &Icmpv6Type, target: &etherparse::Icmpv6Type) -> bool {
+    // Helper function to match the ICMPv6 type of the packet with that of the rules
+    match curr {
+        Icmpv6Type::ParameterProblem => {
+            matches!(target, etherparse::Icmpv6Type::ParameterProblem(_))
+        }
+        Icmpv6Type::TimeExceeded => matches!(target, etherparse::Icmpv6Type::TimeExceeded(_)),
+        Icmpv6Type::DestinationUnreachable => {
+            matches!(target, etherparse::Icmpv6Type::DestinationUnreachable(_))
+        }
+        Icmpv6Type::EchoReply => matches!(target, etherparse::Icmpv6Type::EchoReply(_)),
+        Icmpv6Type::EchoRequest => matches!(target, etherparse::Icmpv6Type::EchoRequest(_)),
+        Icmpv6Type::PacketTooBig => matches!(target, etherparse::Icmpv6Type::PacketTooBig { .. }),
+        Icmpv6Type::Unknown => matches!(target, etherparse::Icmpv6Type::Unknown { .. }),
+    }
+}
+
+impl ProcessPacket for Icmpv6Rule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        todo!()
+    }
+}
+
+// Enum representing the different kinds of ICMPv4 Requests
+#[derive(Deserialize, Debug)]
+enum IcmpType {
+    EchoReply,
+    EchoRequest,
+    DestinationUnreachable,
+    Redirect,
+    TimeExceeded,
+    ParameterProblem,
+    TimestampRequest,
+    TimestampReply,
+    Unknown,
+}
+
+// Struct representing a rule to match against ICMPv4 packets
+#[derive(Deserialize, Debug)]
+pub struct IcmpRule {
+    // Option-al vector of ICMPv4 Types that correspond to the different possible
+    // ICMPv4 headers this rule should match
+    icmp_types: Option<Vec<IcmpType>>,
+    // Option-al vector of ICMPv4 codes that correspond to the different possible
+    // ICMPv4 codes in headers this rule should match
+    icmp_codes: Option<Vec<u8>>,
+}
+
+impl IcmpRule {
+    fn new(icmp_types: Option<Vec<IcmpType>>, icmp_codes: Option<Vec<u8>>) -> Self {
+        Self {
+            icmp_types,
+            icmp_codes,
+        }
+    }
+}
+
+fn match_icmpv4_types(curr: &IcmpType, target: &Icmpv4Type) -> bool {
+    // Helper function to match the ICMPv4 type of the packet with that of the rules
+    match curr {
+        IcmpType::EchoReply => matches!(target, Icmpv4Type::EchoReply(_)),
+        IcmpType::EchoRequest => matches!(target, Icmpv4Type::EchoRequest(_)),
+        IcmpType::DestinationUnreachable => matches!(target, Icmpv4Type::DestinationUnreachable(_)),
+        IcmpType::Redirect => matches!(target, Icmpv4Type::Redirect(_)),
+        IcmpType::TimeExceeded => matches!(target, Icmpv4Type::TimeExceeded(_)),
+        IcmpType::TimestampReply => matches!(target, Icmpv4Type::TimestampReply(_)),
+        IcmpType::TimestampRequest => matches!(target, Icmpv4Type::TimestampRequest(_)),
+        IcmpType::ParameterProblem => matches!(target, Icmpv4Type::ParameterProblem(_)),
+        IcmpType::Unknown => matches!(target, Icmpv4Type::Unknown { .. }),
+    }
+}
+
+impl ProcessPacket for IcmpRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        // Assumes that the packet is some kind of ICMP Packet though not necessarily a valid one
+        // The function parses the byte slice into a etherparse::Icmpv6Slice struct using the
+        // etherparse library. It returns an error if something went wrong during parsing
+        //
+        // All parameters in the Rule struct are optional, and if not explicitly provided,
+        // this function will skip those parameters
+        //
+        // For a request to return 'true' indicating that it matches the Rule struct provided,
+        // it must match all the fields and *at least one* of any subfields.
+        //
+        // Parse request
+        let icmp_packet: etherparse::Icmpv4Slice = etherparse::Icmpv4Slice::from_slice(body)?;
+
+        // Check the ICMPv4 headers
+        if let Some(headers) = &self.icmp_types {
+            let target = icmp_packet.header();
+            if !headers
+                .iter()
+                .any(|header| match_icmpv4_types(header, &target.icmp_type))
+            {
+                return Ok(false);
+            }
+        }
+
+        // Check the ICMPv4 codes
+        if let Some(codes) = &self.icmp_codes {
+            let target = &icmp_packet.code_u8();
+            if !codes.iter().any(|c| c == target) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -211,8 +312,8 @@ impl DnsRule {
     }
 }
 
-impl ApplicationProtocol for DnsRule {
-    fn process_packet(&self, body: &[u8]) -> Result<bool> {
+impl ProcessPacket for DnsRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
         // Assumes that the packet is some kind of DNS Packet over UDP/53 or TCP/53
         // though not necessarily a valid one
         //
@@ -278,7 +379,7 @@ mod dns_tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(rule.process_packet(&dns_packet)?);
+        assert!(rule.process(&dns_packet)?);
 
         let mut builder2 = dns_parser::Builder::new_query(2, false);
         builder2.add_question(
@@ -288,7 +389,7 @@ mod dns_tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
-        assert!(!rule.process_packet(&dns_packet2)?);
+        assert!(!rule.process(&dns_packet2)?);
 
         Ok(())
     }
@@ -311,7 +412,7 @@ mod dns_tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(rule.process_packet(&dns_packet)?);
+        assert!(rule.process(&dns_packet)?);
 
         let mut builder2 = dns_parser::Builder::new_query(1, false);
         builder2.add_question(
@@ -322,7 +423,7 @@ mod dns_tests {
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
 
-        assert!(!rule.process_packet(&dns_packet2)?);
+        assert!(!rule.process(&dns_packet2)?);
 
         Ok(())
     }
@@ -346,7 +447,7 @@ mod dns_tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(!rule.process_packet(&dns_packet)?);
+        assert!(!rule.process(&dns_packet)?);
 
         let mut builder2 = dns_parser::Builder::new_query(1, false);
         builder2.add_question(
@@ -357,8 +458,38 @@ mod dns_tests {
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
 
-        assert!(!rule.process_packet(&dns_packet2)?);
+        assert!(!rule.process(&dns_packet2)?);
         Ok(())
+    }
+}
+
+// Enum to represent HTTP Methods
+#[derive(Deserialize, Debug)]
+enum HttpMethod {
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Connection,
+    Options,
+    Trace,
+}
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Get => write!(f, "GET"),
+            Self::Head => write!(f, "HEAD"),
+            Self::Post => write!(f, "POST"),
+            Self::Put => write!(f, "PUT"),
+            Self::Patch => write!(f, "PATCH"),
+            Self::Delete => write!(f, "DELETE"),
+            Self::Connection => write!(f, "CONNECTION"),
+            Self::Options => write!(f, "OPTIONS"),
+            Self::Trace => write!(f, "TRACE"),
+        }
     }
 }
 
@@ -401,8 +532,8 @@ impl HttpRule {
     }
 }
 
-impl ApplicationProtocol for HttpRule {
-    fn process_packet(&self, body: &[u8]) -> Result<bool> {
+impl ProcessPacket for HttpRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
         // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
         // though not necessarily a valid one.
         //
@@ -498,9 +629,8 @@ impl ApplicationProtocol for HttpRule {
 
 #[cfg(test)]
 mod http_tests {
+    use super::*;
     use crate::hashmap;
-
-    use super::{ApplicationProtocol, HashMap, HttpMethod, HttpRule, Result};
 
     #[test]
     fn test_http_process_packet_1() -> Result<()> {
@@ -512,7 +642,7 @@ mod http_tests {
                         {\"username\":\"john\",\"password\":\"secret\"}";
 
         let rule = HttpRule::new(Some(HttpMethod::Post), None, None, None);
-        assert!(rule.process_packet(req)?);
+        assert!(rule.process(req)?);
 
         let rule_2 = HttpRule::new(
             Some(HttpMethod::Post),
@@ -520,7 +650,7 @@ mod http_tests {
             None,
             Some(vec![String::from("secret"), String::from("missing")]),
         );
-        assert!(rule_2.process_packet(req)?);
+        assert!(rule_2.process(req)?);
 
         Ok(())
     }
@@ -542,7 +672,7 @@ mod http_tests {
             Some(vec![String::from("/api"), String::from("/usr")]),
             Some(vec![String::from("secret"), String::from("jenn")]),
         );
-        assert!(rule.process_packet(req)?);
+        assert!(rule.process(req)?);
 
         let rule2 = HttpRule::new(
             Some(HttpMethod::Post),
@@ -551,7 +681,7 @@ mod http_tests {
             None,
         );
 
-        assert!(!rule2.process_packet(req)?);
+        assert!(!rule2.process(req)?);
 
         Ok(())
     }
@@ -571,7 +701,7 @@ mod http_tests {
             None,
         );
 
-        assert!(rule.process_packet(req)?);
+        assert!(rule.process(req)?);
 
         let rule_2 = HttpRule::new(
             Some(HttpMethod::Get),
@@ -582,7 +712,7 @@ mod http_tests {
             Some(vec![String::from("Non existent body Value")]),
         );
 
-        assert!(!rule_2.process_packet(req)?);
+        assert!(!rule_2.process(req)?);
 
         Ok(())
     }

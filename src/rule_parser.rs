@@ -235,8 +235,7 @@ mod portrange_tests {
         assert_err!(PortRange::new(b, Some(e)), exp);
 
         let b2 = 65538;
-        let e2: Option<i32> = None;
-        let exp2 = format!("begin port {} must be in the range 0 to 65536", b2,);
+        let exp2 = format!("begin port {} must be in the range 0 to 65536", b2);
         assert_err!(PortRange::new(b2, None), exp2);
 
         let b3 = 1;
@@ -323,7 +322,7 @@ mod protocol_tests {
 // for src/dest IP addresses
 // for ports
 // for protocols
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub enum BWList<T: Validate + PartialEq> {
     WhiteList(Vec<T>),
     BlackList(Vec<T>),

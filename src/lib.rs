@@ -82,8 +82,9 @@ pub fn parse_rules(filepath: &Path) -> Result<Box<RuleConfig>> {
     Ok(Box::new(rules))
 }
 
-pub struct PCap<'a> {
+pub struct PacketCapture<'a> {
     rx: &'a mut dyn datalink::DataLinkReceiver,
+    tx: &'a mut dyn datalink::DataLinkSender,
     rules: Option<String>,
 }
 
@@ -272,7 +273,6 @@ fn handle_ipv6_packet(ipv6_packet: Ipv6Packet) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
 
     use crate::validate_file_ext;

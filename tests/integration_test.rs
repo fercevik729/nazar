@@ -13,7 +13,7 @@ fn test_parse_rules_1() -> Result<()> {
     file.write_str(
         r#"
 {
-  "src_ip_list": {
+  "ip_list": {
     "WhiteList": [
       {
         "begin": "2001:db8::1",
@@ -29,7 +29,7 @@ fn test_parse_rules_1() -> Result<()> {
     )?;
 
     let expect_config = RuleConfig {
-        src_ip_list: Some(BWList::WhiteList(vec![
+        ip_list: Some(BWList::WhiteList(vec![
             IpRange::new(
                 IpAddr::V6("2001:db8::1".parse::<Ipv6Addr>()?),
                 Some(IpAddr::V6("2001:db8::10".parse::<Ipv6Addr>()?)),
@@ -39,14 +39,13 @@ fn test_parse_rules_1() -> Result<()> {
                 Some(IpAddr::V6("fe80::ff:feff:1".parse::<Ipv6Addr>()?)),
             )?,
         ])),
-        dest_ip_list: None,
         port_list: None,
-        protoc_list: None,
+        protocol_list: None,
         rules: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
-    assert!(expect_config.src_ip_list == config.src_ip_list);
+    assert!(expect_config.ip_list == config.ip_list);
 
     Ok(())
 }
@@ -57,7 +56,7 @@ fn test_parse_rules_2() -> Result<()> {
     file.write_str(
         r#"
 {
-  "src_ip_list": {
+  "ip_list": {
     "WhiteList": [
       {
         "begin": "2001:db8::1",
@@ -69,14 +68,14 @@ fn test_parse_rules_2() -> Result<()> {
       }
     ]
   },
-  "protoc_list": {
+  "protocol_list": {
     "BlackList": ["Udp", "Icmp"] 
   }
 }"#,
     )?;
 
     let expect_config = RuleConfig {
-        src_ip_list: Some(BWList::WhiteList(vec![
+        ip_list: Some(BWList::WhiteList(vec![
             IpRange::new(
                 IpAddr::V6("2001:db8::1".parse::<Ipv6Addr>()?),
                 Some(IpAddr::V6("2001:db8::10".parse::<Ipv6Addr>()?)),
@@ -86,16 +85,15 @@ fn test_parse_rules_2() -> Result<()> {
                 Some(IpAddr::V6("fe80::ff:feff:1".parse::<Ipv6Addr>()?)),
             )?,
         ])),
-        dest_ip_list: None,
         port_list: None,
-        protoc_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
+        protocol_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
         rules: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
     assert!(
-        config.src_ip_list == expect_config.src_ip_list
-            && config.protoc_list == expect_config.protoc_list
+        config.ip_list == expect_config.ip_list
+            && config.protocol_list == expect_config.protocol_list
     );
 
     Ok(())
@@ -107,7 +105,7 @@ fn test_parse_rules_3() -> Result<()> {
     file.write_str(
         r#"
 {
-  "src_ip_list": {
+  "ip_list": {
     "WhiteList": [
       {
         "begin": "2001:db8::1",
@@ -119,7 +117,7 @@ fn test_parse_rules_3() -> Result<()> {
       }
     ]
   },
-  "protoc_list": {
+  "protocol_list": {
     "BlackList": ["Udp", "Icmp"] 
   },
   "port_list": {
@@ -139,7 +137,7 @@ fn test_parse_rules_3() -> Result<()> {
     )?;
 
     let expect_config = RuleConfig {
-        src_ip_list: Some(BWList::WhiteList(vec![
+        ip_list: Some(BWList::WhiteList(vec![
             IpRange::new(
                 IpAddr::V6("2001:db8::1".parse::<Ipv6Addr>()?),
                 Some(IpAddr::V6("2001:db8::10".parse::<Ipv6Addr>()?)),
@@ -149,19 +147,18 @@ fn test_parse_rules_3() -> Result<()> {
                 Some(IpAddr::V6("fe80::ff:feff:1".parse::<Ipv6Addr>()?)),
             )?,
         ])),
-        dest_ip_list: None,
         port_list: Some(BWList::WhiteList(vec![
             PortRange::new(20, Some(22))?,
             PortRange::new(80, Some(84))?,
         ])),
-        protoc_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
+        protocol_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
         rules: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
     assert!(
-        config.src_ip_list == expect_config.src_ip_list
-            && config.protoc_list == expect_config.protoc_list
+        config.ip_list == expect_config.ip_list
+            && config.protocol_list == expect_config.protocol_list
             && config.port_list == expect_config.port_list
     );
 
