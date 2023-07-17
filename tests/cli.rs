@@ -15,7 +15,7 @@ mod utils;
 fn rules_file_doesnt_exist() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
 
-    cmd.arg("--rules").arg("rules.toml");
+    cmd.arg("--rules").arg("rules.json");
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("No rules file"));
@@ -26,10 +26,10 @@ fn rules_file_doesnt_exist() -> Result<()> {
 fn invalid_rules_file_ext() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
 
-    cmd.arg("--rules").arg("file/doesnt/exist.txt");
+    cmd.arg("--rules").arg("invalidrulefileextension.txt");
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("rules file must be a .toml file"));
+        .stderr(predicate::str::contains("rules file must be a .json file"));
 
     utils::post_test_cleanup("logs")
 }
@@ -37,7 +37,7 @@ fn invalid_rules_file_ext() -> Result<()> {
 #[test]
 fn simple_rules_file() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
-    let file = assert_fs::NamedTempFile::new("rules.toml")?;
+    let file = assert_fs::NamedTempFile::new("rules.json")?;
     file.write_str("[whitelist]\n127.0.0.1\n192.168.23.1\n192.168.23.4")?;
 
     let fp = file.path();

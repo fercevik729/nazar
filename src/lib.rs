@@ -60,7 +60,7 @@ pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
 // Parses a rule file ending in .json
 pub fn parse_rules(filepath: &Path) -> Result<Box<RuleConfig>> {
     // Validate rules file extension
-    // Currently only supports toml
+    // Currently only supports json
     if !validate_file_ext(filepath, "json") {
         return Err(anyhow!("rules file must be a .json file"));
     }

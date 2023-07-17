@@ -47,8 +47,8 @@ fn main() -> Result<()> {
     println!("Dynamic: {}", args.dynamic);
 
     // Rules file
-    if !nazar::validate_file_ext(&args.rules, "toml") {
-        return Err(anyhow!("rules file must be a .toml file"));
+    if !nazar::validate_file_ext(&args.rules, "json") {
+        return Err(anyhow!("rules file must be a .json file"));
     }
     let rules_file = File::open(&args.rules).with_context(|| {
         format!(

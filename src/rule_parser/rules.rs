@@ -123,7 +123,38 @@ fn match_icmpv6_types(curr: &Icmpv6Type, target: &etherparse::Icmpv6Type) -> boo
 
 impl ProcessPacket for Icmpv6Rule {
     fn process(&self, body: &[u8]) -> Result<bool> {
-        todo!()
+        // Assumes that the packet is some kind of ICMPv6 Packet though not necessarily a valid one
+        // The function parses the byte slice into a etherparse::Icmpv6Slice struct using the
+        // etherparse library. It returns an error if something went wrong during parsing
+        //
+        // All parameters in the Rule struct are optional, and if not explicitly provided,
+        // this function will skip those parameters
+        //
+        // For a request to return 'true' indicating that it matches the Rule struct provided,
+        // it must match all the fields and *at least one* of any subfields.
+        //
+        // Parse request
+        let icmp_packet: etherparse::Icmpv6Slice = etherparse::Icmpv6Slice::from_slice(body)?;
+
+        // Check the ICMPv6 headers
+        if let Some(headers) = &self.icmpv6_types {
+            let target = icmp_packet.header();
+            if !headers
+                .iter()
+                .any(|header| match_icmpv6_types(header, &target.icmp_type))
+            {
+                return Ok(false);
+            }
+        }
+
+        // Check the ICMPv6 codes
+        if let Some(codes) = &self.icmpv6_codes {
+            let target = &icmp_packet.code_u8();
+            if !codes.iter().any(|c| c == target) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -178,8 +209,8 @@ fn match_icmpv4_types(curr: &IcmpType, target: &Icmpv4Type) -> bool {
 
 impl ProcessPacket for IcmpRule {
     fn process(&self, body: &[u8]) -> Result<bool> {
-        // Assumes that the packet is some kind of ICMP Packet though not necessarily a valid one
-        // The function parses the byte slice into a etherparse::Icmpv6Slice struct using the
+        // Assumes that the packet is some kind of ICMPv4 Packet though not necessarily a valid one
+        // The function parses the byte slice into a etherparse::Icmpv4Slice struct using the
         // etherparse library. It returns an error if something went wrong during parsing
         //
         // All parameters in the Rule struct are optional, and if not explicitly provided,
@@ -210,6 +241,66 @@ impl ProcessPacket for IcmpRule {
             }
         }
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod icmp_tests {
+
+    use super::IcmpType;
+    use super::*;
+    use pnet::{
+        packet::icmp::{echo_reply::IcmpCodes, echo_request, IcmpPacket, IcmpType as pnetIcmpType},
+        packet::Packet,
+    };
+
+    #[test]
+    fn test_icmpv4_1() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
+        icmp_packet.set_icmp_type(pnetIcmpType(8));
+        icmp_packet.set_sequence_number(1234);
+
+        let binding = icmp_packet.to_immutable();
+        let icmp_bytes = binding.packet();
+        let icmpv4_rule =
+            IcmpRule::new(Some(vec![IcmpType::EchoRequest, IcmpType::EchoReply]), None);
+        assert!(icmpv4_rule.process(&icmp_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv4_2() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
+        icmp_packet.set_icmp_type(pnetIcmpType(8));
+        icmp_packet.set_sequence_number(1234);
+
+        let binding = icmp_packet.to_immutable();
+        let icmp_bytes = binding.packet();
+        let icmpv4_rule = IcmpRule::new(
+            Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
+            None,
+        );
+        assert!(!icmpv4_rule.process(&icmp_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv4_3() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
+        icmp_packet.set_icmp_type(pnetIcmpType(8));
+        icmp_packet.set_sequence_number(1234);
+
+        let binding = icmp_packet.to_immutable();
+        let icmp_bytes = binding.packet();
+        let icmpv4_rule = IcmpRule::new(
+            Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
+            None,
+        );
+        assert!(icmpv4_rule.process(&icmp_bytes)?);
+        Ok(())
     }
 }
 
