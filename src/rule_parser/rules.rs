@@ -151,6 +151,7 @@ impl ProcessPacket for Icmpv6Rule {
         if let Some(codes) = &self.icmpv6_codes {
             let target = &icmp_packet.code_u8();
             if !codes.iter().any(|c| c == target) {
+                println!("{}", target);
                 return Ok(false);
             }
         }
@@ -250,8 +251,11 @@ mod icmp_tests {
     use super::IcmpType;
     use super::*;
     use pnet::{
-        packet::icmp::{echo_reply::IcmpCodes, echo_request, IcmpPacket, IcmpType as pnetIcmpType},
         packet::Packet,
+        packet::{
+            icmp::{echo_request, time_exceeded, IcmpPacket, IcmpType as pnetIcmpType},
+            icmpv6::{Icmpv6Code, Icmpv6Types, MutableIcmpv6Packet},
+        },
     };
 
     #[test]
@@ -259,7 +263,6 @@ mod icmp_tests {
         let mut buffer = [0u8; 64];
         let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
         icmp_packet.set_icmp_type(pnetIcmpType(8));
-        icmp_packet.set_sequence_number(1234);
 
         let binding = icmp_packet.to_immutable();
         let icmp_bytes = binding.packet();
@@ -274,7 +277,6 @@ mod icmp_tests {
         let mut buffer = [0u8; 64];
         let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
         icmp_packet.set_icmp_type(pnetIcmpType(8));
-        icmp_packet.set_sequence_number(1234);
 
         let binding = icmp_packet.to_immutable();
         let icmp_bytes = binding.packet();
@@ -289,9 +291,8 @@ mod icmp_tests {
     #[test]
     fn test_icmpv4_3() -> Result<()> {
         let mut buffer = [0u8; 64];
-        let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
-        icmp_packet.set_icmp_type(pnetIcmpType(8));
-        icmp_packet.set_sequence_number(1234);
+        let mut icmp_packet = time_exceeded::MutableTimeExceededPacket::new(&mut buffer).unwrap();
+        icmp_packet.set_icmp_type(pnetIcmpType(0));
 
         let binding = icmp_packet.to_immutable();
         let icmp_bytes = binding.packet();
@@ -300,6 +301,57 @@ mod icmp_tests {
             None,
         );
         assert!(icmpv4_rule.process(&icmp_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv6_1() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
+        icmpv6_packet.set_icmpv6_type(Icmpv6Types::PacketTooBig);
+
+        let binding = icmpv6_packet.to_immutable();
+        let icmpv6_bytes = binding.packet();
+        let icmpv6_rule = Icmpv6Rule::new(
+            Some(vec![Icmpv6Type::PacketTooBig, Icmpv6Type::TimeExceeded]),
+            None,
+        );
+
+        assert!(icmpv6_rule.process(icmpv6_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv6_2() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
+        icmpv6_packet.set_icmpv6_type(Icmpv6Types::NeighborSolicit);
+
+        let binding = icmpv6_packet.to_immutable();
+        let icmpv6_bytes = binding.packet();
+        let icmpv6_rule = Icmpv6Rule::new(
+            Some(vec![Icmpv6Type::PacketTooBig, Icmpv6Type::TimeExceeded]),
+            None,
+        );
+
+        assert!(!icmpv6_rule.process(icmpv6_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv6_3() -> Result<()> {
+        let mut buffer = [0u8; 64];
+        let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
+        icmpv6_packet.set_icmpv6_type(Icmpv6Types::PacketTooBig);
+
+        let binding = icmpv6_packet.to_immutable();
+        let icmpv6_bytes = binding.packet();
+        let icmpv6_rule = Icmpv6Rule::new(
+            Some(vec![Icmpv6Type::PacketTooBig, Icmpv6Type::TimeExceeded]),
+            Some(vec![1, 2, 55]),
+        );
+
+        assert!(!icmpv6_rule.process(icmpv6_bytes)?);
         Ok(())
     }
 }
