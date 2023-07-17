@@ -82,7 +82,7 @@ pub fn parse_rules(filepath: &Path) -> Result<Box<RuleConfig>> {
     Ok(Box::new(rules))
 }
 
-pub struct PacketCapture<'a> {
+pub struct PacketCapturer<'a> {
     rx: &'a mut dyn datalink::DataLinkReceiver,
     tx: &'a mut dyn datalink::DataLinkSender,
     rules: Option<String>,

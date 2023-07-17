@@ -25,8 +25,9 @@ fn rules_file_doesnt_exist() -> Result<()> {
 #[test]
 fn invalid_rules_file_ext() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
+    let invalid_file = assert_fs::NamedTempFile::new("invalidext.txt")?;
 
-    cmd.arg("--rules").arg("invalidrulefileextension.txt");
+    cmd.arg("--rules").arg(invalid_file.path());
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("rules file must be a .json file"));

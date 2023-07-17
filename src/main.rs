@@ -56,7 +56,6 @@ fn main() -> Result<()> {
             &args.rules.display()
         )
     })?;
-    let mut _buf = BufReader::new(rules_file);
     println!("Reading rules from `{}`...", args.rules.display());
 
     // Logging with log4rs
