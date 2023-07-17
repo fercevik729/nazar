@@ -14,7 +14,6 @@ mod utils;
 #[test]
 fn rules_file_doesnt_exist() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;
-
     cmd.arg("--rules").arg("rules.json");
     cmd.assert()
         .failure()
@@ -32,7 +31,7 @@ fn invalid_rules_file_ext() -> Result<()> {
         .failure()
         .stderr(predicate::str::contains("rules file must be a .json file"));
 
-    utils::post_test_cleanup("logs")
+    Ok(())
 }
 
 #[test]
@@ -49,5 +48,5 @@ fn simple_rules_file() -> Result<()> {
             "Reading rules from `{}`",
             fp.display()
         )));
-    Ok(())
+    utils::post_test_cleanup("logs")
 }
