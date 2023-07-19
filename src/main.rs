@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::BufReader;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -50,7 +49,7 @@ fn main() -> Result<()> {
     if !nazar::validate_file_ext(&args.rules, "json") {
         return Err(anyhow!("rules file must be a .json file"));
     }
-    let rules_file = File::open(&args.rules).with_context(|| {
+    let _rules_file = File::open(&args.rules).with_context(|| {
         format!(
             "No rules file of the name `{}` exists",
             &args.rules.display()
