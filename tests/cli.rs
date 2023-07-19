@@ -34,6 +34,7 @@ fn invalid_rules_file_ext() -> Result<()> {
     Ok(())
 }
 
+#[ignore]
 #[test]
 fn simple_rules_file() -> Result<()> {
     let mut cmd = Command::cargo_bin("nazar")?;

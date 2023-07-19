@@ -23,7 +23,3 @@ toml = "0.7.6"
 assert_cmd = "2.0.12"
 predicates = "3.0.3"
 assert_fs = "1.0.13"
-cargo-tarpaulin = "0.26.1"
-
-[package.metadata.tarpaulin]
-exclude = ["tests/*", "benches/*", "src/main.rs"]
