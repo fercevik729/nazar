@@ -48,4 +48,5 @@ fn simple_rules_file() -> Result<()> {
             "Reading rules from `{}`",
             fp.display()
         )));
+    Ok(())
 }
