@@ -102,16 +102,16 @@ enum TcpOption {
 pub struct TcpRule {
     options: Option<Vec<TcpOption>>,
     flags: Option<u16>,
-    max_window_size: Option<u64>,
-    max_payload_size: Option<u64>,
+    max_window_size: Option<u16>,
+    max_payload_size: Option<u32>,
 }
 
 impl TcpRule {
     fn new(
         options: Option<Vec<TcpOption>>,
         flags: Option<u16>,
-        max_window_size: Option<u64>,
-        max_payload_size: Option<u64>,
+        max_window_size: Option<u16>,
+        max_payload_size: Option<u32>,
     ) -> Self {
         Self {
             options,
@@ -160,15 +160,114 @@ impl ProcessPacket for TcpRule {
                 return Ok(false);
             }
 
-            // TODO: check the checksum
+            // Check the window size
+            if let Some(max_window_size) = self.max_window_size {
+                if max_window_size < tcp_packet.get_window() {
+                    return Ok(false);
+                }
+            }
+
             // Check the flags
             if let Some(flags) = self.flags {
                 return Ok((flags & tcp_packet.get_flags()) > 0);
             }
+
+            // TODO:
+            // Check the payload
+            //
+            // Check the checksum
+            //
+
             Ok(true)
         } else {
             Err(anyhow!("Unable to parse TCP Packet"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tcp_tests {
+    use pnet::packet::{tcp::MutableTcpPacket, Packet};
+
+    use super::*;
+
+    const TCP_PACKET_LEN: usize = 30;
+    const TCP_PACKET_OFS: u8 = 10;
+
+    #[test]
+    fn test_tcp_process_packet_1() -> Result<()> {
+        // Tests for TCP options in particular
+        // 1 option - matches
+        let rule = TcpRule::new(Some(vec![TcpOption::NOP]), None, None, None);
+        let buff: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
+        tcp_packet.set_data_offset(TCP_PACKET_OFS); // TCP header data offset
+        tcp_packet.set_flags(tcp::TcpFlags::SYN); // TCP header flags
+        tcp_packet.set_options(&[tcp::TcpOption::nop()]);
+
+        assert!(rule.process(tcp_packet.packet())?);
+
+        // 2 options - at least 1 matches
+        let buff_2: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet_2 = MutableTcpPacket::owned(buff_2).unwrap();
+        tcp_packet_2.set_data_offset(TCP_PACKET_OFS); // TCP header data offset
+        tcp_packet_2.set_flags(tcp::TcpFlags::SYN); // TCP header flags
+        tcp_packet_2.set_options(&[tcp::TcpOption::nop(), tcp::TcpOption::sack_perm()]);
+
+        assert!(rule.process(tcp_packet_2.packet())?);
+
+        // 2 options - don't match
+        let buff_3: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet_3 = MutableTcpPacket::owned(buff_3).unwrap();
+        tcp_packet_3.set_data_offset(TCP_PACKET_OFS); // TCP header data offset
+        tcp_packet_3.set_flags(tcp::TcpFlags::SYN); // TCP header flags
+        tcp_packet_3.set_options(&[tcp::TcpOption::mss(3), tcp::TcpOption::sack_perm()]);
+
+        assert!(!rule.process(tcp_packet_3.packet())?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_tcp_process_packet_2() -> Result<()> {
+        // Tests for TCP Flags in particular
+        // 1 flag - matches
+        let rule = TcpRule::new(Some(vec![TcpOption::MSS]), Some(0x02), None, None);
+        let buff: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
+        tcp_packet.set_data_offset(TCP_PACKET_OFS);
+        tcp_packet.set_flags(tcp::TcpFlags::SYN);
+        tcp_packet.set_options(&[tcp::TcpOption::mss(10)]);
+
+        assert!(rule.process(tcp_packet.packet())?);
+
+        // 1 flag - doesn't match
+        let buff_2: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet_2 = MutableTcpPacket::owned(buff_2).unwrap();
+        tcp_packet_2.set_data_offset(TCP_PACKET_OFS);
+        tcp_packet_2.set_flags(tcp::TcpFlags::ACK);
+        tcp_packet_2.set_options(&[tcp::TcpOption::mss(10)]);
+
+        assert!(!rule.process(tcp_packet_2.packet())?);
+
+        // 3 flags - at least 1 match
+        let buff_3: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet_3 = MutableTcpPacket::owned(buff_3).unwrap();
+        tcp_packet_3.set_data_offset(TCP_PACKET_OFS);
+        tcp_packet_3.set_flags(tcp::TcpFlags::ACK | tcp::TcpFlags::SYN | tcp::TcpFlags::URG);
+        tcp_packet_3.set_options(&[tcp::TcpOption::mss(10)]);
+
+        assert!(rule.process(tcp_packet_3.packet())?);
+
+        // 3 flags - none match
+        let buff_4: Vec<u8> = vec![0; TCP_PACKET_LEN];
+        let mut tcp_packet_4 = MutableTcpPacket::owned(buff_4).unwrap();
+        tcp_packet_4.set_data_offset(TCP_PACKET_OFS);
+        tcp_packet_4.set_flags(tcp::TcpFlags::ACK | tcp::TcpFlags::ECE | tcp::TcpFlags::URG);
+        tcp_packet_4.set_options(&[tcp::TcpOption::mss(10)]);
+
+        assert!(!rule.process(tcp_packet_4.packet())?);
+
+        Ok(())
     }
 }
 

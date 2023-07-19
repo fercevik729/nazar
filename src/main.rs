@@ -1,7 +1,6 @@
+use clap::Parser;
 use std::fs::File;
 use std::path::PathBuf;
-
-use clap::Parser;
 
 use anyhow::{anyhow, Context, Result};
 
