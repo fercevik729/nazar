@@ -86,6 +86,7 @@ pub struct PacketCapturer<'a> {
     rx: &'a mut dyn datalink::DataLinkReceiver,
     tx: &'a mut dyn datalink::DataLinkSender,
     rules: Option<String>,
+    tcp_seq_num: u64,
 }
 
 // Sets up the packet capture datalink receiver via a provided Ethernet interface

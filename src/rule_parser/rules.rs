@@ -3,6 +3,7 @@ use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 use anyhow::anyhow;
 use etherparse::{self, Icmpv4Type};
 use httparse::Status;
+use pnet::packet::tcp::{self, TcpPacket};
 use std::{collections::HashMap, fmt, net::IpAddr};
 
 #[derive(Deserialize, Debug)]
@@ -17,6 +18,8 @@ pub struct RuleConfig {
     pub protocol_list: Option<BWList<Protocol>>,
     /// Option-al vector of user-defined rules
     pub rules: Option<Vec<Rule>>,
+    // Option-al threshold to prevent SYN flood attacks
+    pub syn_threshold: Option<u64>,
 }
 
 // Enum used to represent intrusion detection system
@@ -42,19 +45,21 @@ pub struct Rule {
     action: IdsAction,
 }
 
+// Enum representing custom transport layer
+// and application layer protocols
 #[derive(Deserialize, Debug)]
 pub enum ProtocolRule {
     // Transport Protocols
     Icmp(IcmpRule),
-    Icmpv6,
-    Tcp,
+    Icmpv6(Icmpv6Rule),
+    Tcp(TcpRule),
     Udp,
     // Application Protocols
     Http(HttpRule),
     Dns(DnsRule),
 }
 
-// Represents a vector of string patterns
+// Struct that represents a vector of string patterns
 #[derive(Deserialize, Debug)]
 struct Patterns(Vec<String>);
 
@@ -74,6 +79,97 @@ impl Patterns {
 // A trait indicating that the type which implements is capable of processing request packets
 trait ProcessPacket {
     fn process(&self, body: &[u8]) -> Result<bool>;
+}
+
+// Enum representing TCP Options
+#[derive(Deserialize, Debug)]
+enum TcpOption {
+    /// Maximum segment size
+    MSS,
+    /// Window scale
+    WSCALE,
+    /// Selective acknowledgment
+    SACK,
+    /// End of Options list
+    EOL,
+    /// Timestamps
+    TIMESTAMPS,
+    /// No operation
+    NOP,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TcpRule {
+    options: Option<Vec<TcpOption>>,
+    flags: Option<u16>,
+    max_window_size: Option<u64>,
+    max_payload_size: Option<u64>,
+}
+
+impl TcpRule {
+    fn new(
+        options: Option<Vec<TcpOption>>,
+        flags: Option<u16>,
+        max_window_size: Option<u64>,
+        max_payload_size: Option<u64>,
+    ) -> Self {
+        Self {
+            options,
+            flags,
+            max_window_size,
+            max_payload_size,
+        }
+    }
+
+    fn match_opts(&self, x: tcp::TcpOptionPacket) -> bool {
+        // If tcp options are specified in the rule, this function will return true
+        // if at least one of the options are contained in the packet, otherwise it will
+        // return false
+        // If no tcp options are specified in the rule, this function will also return true
+        // since in this case any TCP option is valid
+        if let Some(rule_options) = &self.options {
+            return rule_options.iter().any(|ro| match ro {
+                TcpOption::MSS => x.get_number() == tcp::TcpOptionNumbers::MSS,
+                TcpOption::EOL => x.get_number() == tcp::TcpOptionNumbers::EOL,
+                TcpOption::NOP => x.get_number() == tcp::TcpOptionNumbers::NOP,
+                TcpOption::SACK => x.get_number() == tcp::TcpOptionNumbers::SACK,
+                TcpOption::WSCALE => x.get_number() == tcp::TcpOptionNumbers::WSCALE,
+                TcpOption::TIMESTAMPS => x.get_number() == tcp::TcpOptionNumbers::TIMESTAMPS,
+            });
+        }
+
+        true
+    }
+}
+
+impl ProcessPacket for TcpRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        // Assumes that the packet is some kind of TCP Packet though not necessarily a valid one
+        // The function parses the byte slice into a TcpPacket struct using the
+        // pnet library. It returns an error if something went wrong during parsing
+        //
+        // All parameters in the Rule struct are optional, and if not explicitly provided,
+        // this function will skip those parameters
+        //
+        // For a request to return 'true' indicating that it matches the Rule struct provided,
+        // it must match all the fields and *at least one* of any subfields.
+        // Try to make a TCP Packet
+        if let Some(tcp_packet) = TcpPacket::new(body) {
+            // Check the options
+            if !tcp_packet.get_options_iter().any(|x| self.match_opts(x)) {
+                return Ok(false);
+            }
+
+            // TODO: check the checksum
+            // Check the flags
+            if let Some(flags) = self.flags {
+                return Ok((flags & tcp_packet.get_flags()) > 0);
+            }
+            Ok(true)
+        } else {
+            Err(anyhow!("Unable to parse TCP Packet"))
+        }
+    }
 }
 
 // Enum representing the different kinds of ICMPv6 Requests
@@ -151,7 +247,6 @@ impl ProcessPacket for Icmpv6Rule {
         if let Some(codes) = &self.icmpv6_codes {
             let target = &icmp_packet.code_u8();
             if !codes.iter().any(|c| c == target) {
-                println!("{}", target);
                 return Ok(false);
             }
         }
@@ -253,8 +348,8 @@ mod icmp_tests {
     use pnet::{
         packet::Packet,
         packet::{
-            icmp::{echo_request, time_exceeded, IcmpPacket, IcmpType as pnetIcmpType},
-            icmpv6::{Icmpv6Code, Icmpv6Types, MutableIcmpv6Packet},
+            icmp::{echo_request, time_exceeded, IcmpType as pnetIcmpType},
+            icmpv6::{Icmpv6Types, MutableIcmpv6Packet},
         },
     };
 
@@ -352,6 +447,33 @@ mod icmp_tests {
         );
 
         assert!(!icmpv6_rule.process(icmpv6_bytes)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_icmpv6_4() -> Result<()> {
+        // First packet
+        let mut buffer_1 = [0u8; 64];
+        let mut icmpv6_packet_1 = MutableIcmpv6Packet::new(&mut buffer_1).unwrap();
+        icmpv6_packet_1.set_icmpv6_type(Icmpv6Types::TimeExceeded);
+        let binding_1 = icmpv6_packet_1.to_immutable();
+        let icmpv6_bytes_1 = binding_1.packet();
+
+        // Second packet
+        let mut buffer_2 = [0u8; 64];
+        let mut icmpv6_packet_2 = MutableIcmpv6Packet::new(&mut buffer_2).unwrap();
+        icmpv6_packet_2.set_icmpv6_type(Icmpv6Types::EchoRequest);
+        let binding_2 = icmpv6_packet_2.to_immutable();
+        let icmpv6_bytes_2 = binding_2.packet();
+
+        let icmpv6_rule = Icmpv6Rule::new(
+            Some(vec![Icmpv6Type::PacketTooBig, Icmpv6Type::TimeExceeded]),
+            Some(vec![0, 1, 2, 55]),
+        );
+
+        assert!(icmpv6_rule.process(icmpv6_bytes_1)?);
+        assert!(!icmpv6_rule.process(icmpv6_bytes_2)?);
+
         Ok(())
     }
 }

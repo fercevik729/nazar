@@ -42,6 +42,7 @@ fn test_parse_rules_1() -> Result<()> {
         port_list: None,
         protocol_list: None,
         rules: None,
+        syn_threshold: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
@@ -88,6 +89,7 @@ fn test_parse_rules_2() -> Result<()> {
         port_list: None,
         protocol_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
         rules: None,
+        syn_threshold: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
@@ -153,6 +155,7 @@ fn test_parse_rules_3() -> Result<()> {
         ])),
         protocol_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
         rules: None,
+        syn_threshold: None,
     };
 
     let config: RuleConfig = *parse_rules(file.path())?;
