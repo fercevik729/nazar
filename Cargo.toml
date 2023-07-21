@@ -2,7 +2,7 @@
 name = "nazar"
 version = "0.1.0"
 edition = "2021"
-
+description = "A simple packet sniffing and intrusion detection program"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -23,3 +23,15 @@ toml = "0.7.6"
 assert_cmd = "2.0.12"
 predicates = "3.0.3"
 assert_fs = "1.0.13"
+
+[profile.release]
+opt-level = 3
+debug = false
+strip = "debuginfo"
+debug-assertions = false
+overflow-checks = true
+lto = true
+panic = 'abort'
+incremental = false
+rpath = false
+codegen-units = 1

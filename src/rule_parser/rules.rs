@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 
 use anyhow::anyhow;
