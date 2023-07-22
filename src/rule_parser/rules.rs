@@ -6,7 +6,8 @@ use etherparse::{self, Icmpv4Type};
 use httparse::Status;
 use pnet::packet::{
     tcp::{self, TcpPacket},
-    PacketSize,
+    udp::UdpPacket,
+    Packet, PacketSize,
 };
 use std::{collections::HashMap, fmt, net::IpAddr};
 
@@ -83,6 +84,132 @@ impl Patterns {
 // A trait indicating that the type which implements is capable of processing request packets
 trait ProcessPacket {
     fn process(&self, body: &[u8]) -> Result<bool>;
+}
+
+// Enum representing next level protocols on top of UDP
+// DNS is excluded because it has its own separate rule
+// implementation
+#[derive(Deserialize, Debug)]
+enum UdpNextLevel {
+    // Domain Name System
+    DNS,
+    // Dynamic Host Configuration Protocol
+    DHCP,
+    // Simple Network Management Protocol
+    SNMP,
+    // Sessions Initiation Protocol
+    SIP,
+    // Real-Time Transport Protocol
+    RTP,
+    // Session Traversal Utilities for NAT
+    STUN,
+}
+
+// Struct representing a UDP rule
+#[derive(Deserialize, Debug)]
+pub struct UdpRule {
+    next_protocol: Option<UdpNextLevel>,
+    max_packet_size: Option<usize>,
+}
+
+impl UdpRule {
+    fn new(next_protocol: Option<UdpNextLevel>, max_packet_size: Option<usize>) -> Self {
+        Self {
+            next_protocol,
+            max_packet_size,
+        }
+    }
+}
+
+// A function to determine if a UDP Packet is a DNS Packet
+pub fn is_dns(udp_packet: &UdpPacket) -> bool {
+    if udp_packet.get_length() < 12 {
+        return false;
+    }
+
+    let dns_header = &udp_packet.payload()[..12];
+    dns_header
+        == [
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+}
+
+// A function to determine if a UDP Packet is a DHCP Packet
+const DHCP_MAGIC_COOKIE: u32 = 0x63825363;
+const DHCP_OPTION_MSG_TYPE: u8 = 53;
+
+const DHCP_DISCOVER: u8 = 1;
+const DHCP_OFFER: u8 = 2;
+const DHCP_REQUEST: u8 = 3;
+const DHCP_ACK: u8 = 5;
+
+pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
+    // Check if it is long enough
+    if udp_packet.get_length() < 240 {
+        return false;
+    }
+
+    // Not a valid DHCP Packet if it doesn't contain the magic cookie
+    let magic_cookie = u32::from_be_bytes([
+        udp_packet.payload()[236],
+        udp_packet.payload()[237],
+        udp_packet.payload()[238],
+        udp_packet.payload()[239],
+    ]);
+    if magic_cookie != DHCP_MAGIC_COOKIE {
+        return false;
+    }
+
+    let mut idx = 240;
+    while idx + 1 < udp_packet.payload().len() {
+        let opt_code = udp_packet.payload()[idx];
+        if opt_code == DHCP_OPTION_MSG_TYPE {
+            // Found a DHCP Option
+            let opt_len = udp_packet.payload()[idx + 1];
+            if idx + 1 + (opt_len as usize) < udp_packet.payload().len() {
+                match udp_packet.payload()[idx + 2] {
+                    // Only valid DHCP Packet Types are recognized
+                    DHCP_DISCOVER | DHCP_ACK | DHCP_OFFER | DHCP_REQUEST => return true,
+                    // Anything else returns false
+                    _ => return false,
+                }
+            }
+        }
+
+        idx += 2 + (udp_packet.payload()[idx + 1] as usize)
+    }
+
+    false
+}
+
+impl ProcessPacket for UdpRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        if let Some(udp_packet) = UdpPacket::new(body) {
+            // Check the next level protocol
+            if let Some(next_protocol) = &self.next_protocol {
+                match next_protocol {
+                    UdpNextLevel::DNS => {
+                        if !is_dns(&udp_packet) {
+                            return Ok(false);
+                        }
+                    }
+
+                    _ => todo!(),
+                }
+            }
+
+            if let Some(max_packet_size) = self.max_packet_size {
+                // Check the packet size
+                if max_packet_size < udp_packet.packet_size() {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        } else {
+            Err(anyhow!("Unable to parse UDP packet."))
+        }
+    }
 }
 
 // Enum representing TCP Options

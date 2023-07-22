@@ -1,8 +1,7 @@
-use std::net::{IpAddr, Ipv6Addr};
-
-use serde::Deserialize;
-
+#![allow(dead_code)]
 use anyhow::{anyhow, Result};
+use serde::Deserialize;
+use std::net::{IpAddr, Ipv6Addr};
 
 pub mod rules;
 
