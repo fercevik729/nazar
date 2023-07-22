@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Ok};
 use etherparse::{self, Icmpv4Type};
 use httparse::Status;
 use pnet::packet::{
@@ -101,8 +101,6 @@ enum UdpNextLevel {
     SIP,
     // Real-Time Transport Protocol
     RTP,
-    // Session Traversal Utilities for NAT
-    STUN,
 }
 
 // Struct representing a UDP rule
@@ -134,7 +132,7 @@ pub fn is_dns(udp_packet: &UdpPacket) -> bool {
         ]
 }
 
-// A function to determine if a UDP Packet is a DHCP Packet
+// DHCP Constants
 const DHCP_MAGIC_COOKIE: u32 = 0x63825363;
 const DHCP_OPTION_MSG_TYPE: u8 = 53;
 
@@ -143,6 +141,7 @@ const DHCP_OFFER: u8 = 2;
 const DHCP_REQUEST: u8 = 3;
 const DHCP_ACK: u8 = 5;
 
+// A function to determine if a UDP Packet is a DHCP Packet
 pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
     // Check if it is long enough
     if udp_packet.get_length() < 240 {
@@ -167,6 +166,7 @@ pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
             // Found a DHCP Option
             let opt_len = udp_packet.payload()[idx + 1];
             if idx + 1 + (opt_len as usize) < udp_packet.payload().len() {
+                // Match agains the option in the payload
                 match udp_packet.payload()[idx + 2] {
                     // Only valid DHCP Packet Types are recognized
                     DHCP_DISCOVER | DHCP_ACK | DHCP_OFFER | DHCP_REQUEST => return true,
@@ -182,10 +182,71 @@ pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
     false
 }
 
+// SNMP Constants
+const SNMP_VERSION_1: u8 = 0;
+const SNMP_VERSION_2C: u8 = 1;
+const SNMP_VERSION_3: u8 = 3;
+
+const SNMP_GET_REQUEST: u8 = 0xA0;
+const SNMP_GET_NEXT_REQUEST: u8 = 0xA1;
+const SNMP_GET_RESPONSE: u8 = 0xA2;
+const SNMP_SET_REQUEST: u8 = 0xA3;
+
+// Function to determine if a UDP Packet is a SNMP Packet
+pub fn is_snmp(udp_packet: &UdpPacket) -> bool {
+    // Check payload size
+    if udp_packet.payload().len() < 6 {
+        return false;
+    }
+
+    // Check version
+    let snmp_vers = udp_packet.payload()[0];
+    match snmp_vers {
+        SNMP_VERSION_1 | SNMP_VERSION_2C | SNMP_VERSION_3 => {
+            // Check the message type
+            let message_type = udp_packet.payload()[1];
+            match message_type {
+                SNMP_GET_REQUEST | SNMP_SET_REQUEST | SNMP_GET_RESPONSE | SNMP_GET_NEXT_REQUEST => {
+                    true
+                }
+                // Unsupported message type
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+// Function to determine if a UDP packet is a SIP Packet
+pub fn is_sip(udp_packet: &UdpPacket) -> bool {
+    // Check payload size
+    if udp_packet.payload().len() < 3 {
+        return false;
+    }
+
+    // Check if the packet starts with the expected header:
+    // INV or SIP in binary
+    match &udp_packet.payload()[..3] {
+        b"INV" | b"SIP" => true,
+        _ => false,
+    }
+}
+
+// Function to determine if a UDP packet is a RTP PacketSize
+fn is_rtp(udp_packet: &UdpPacket) -> bool {
+    // Check the payload size
+    if udp_packet.payload().len() < 12 {
+        return false;
+    }
+
+    // Check the version number by determining if the two MSB's == 2
+    (udp_packet.payload()[0] >> 6) == 2
+}
+
 impl ProcessPacket for UdpRule {
     fn process(&self, body: &[u8]) -> Result<bool> {
         if let Some(udp_packet) = UdpPacket::new(body) {
-            // Check the next level protocol
+            // Check the next level protocols using the previously defined helper functions
             if let Some(next_protocol) = &self.next_protocol {
                 match next_protocol {
                     UdpNextLevel::DNS => {
@@ -193,8 +254,26 @@ impl ProcessPacket for UdpRule {
                             return Ok(false);
                         }
                     }
-
-                    _ => todo!(),
+                    UdpNextLevel::DHCP => {
+                        if !is_dhcp(&udp_packet) {
+                            return Ok(false);
+                        }
+                    }
+                    UdpNextLevel::RTP => {
+                        if !is_rtp(&udp_packet) {
+                            return Ok(false);
+                        }
+                    }
+                    UdpNextLevel::SIP => {
+                        if !is_sip(&udp_packet) {
+                            return Ok(false);
+                        }
+                    }
+                    UdpNextLevel::SNMP => {
+                        if !is_snmp(&udp_packet) {
+                            return Ok(false);
+                        }
+                    }
                 }
             }
 
