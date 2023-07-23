@@ -120,12 +120,12 @@ impl UdpRule {
 }
 
 // A function to determine if a UDP Packet is a DNS Packet
-pub fn is_dns(udp_packet: &UdpPacket) -> bool {
-    if udp_packet.get_length() < 12 {
+pub fn is_dns(payload: &[u8]) -> bool {
+    if payload.len() < 12 {
         return false;
     }
 
-    let dns_header = &udp_packet.payload()[..12];
+    let dns_header = &payload[..12];
     dns_header
         == [
             0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -141,33 +141,28 @@ const DHCP_OFFER: u8 = 2;
 const DHCP_REQUEST: u8 = 3;
 const DHCP_ACK: u8 = 5;
 
-// A function to determine if a UDP Packet is a DHCP Packet
-pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
+// A function to determine if a byte slice is a DHCP Packet
+pub fn is_dhcp(payload: &[u8]) -> bool {
     // Check if it is long enough
-    if udp_packet.get_length() < 240 {
+    if payload.len() < 240 {
         return false;
     }
 
     // Not a valid DHCP Packet if it doesn't contain the magic cookie
-    let magic_cookie = u32::from_be_bytes([
-        udp_packet.payload()[236],
-        udp_packet.payload()[237],
-        udp_packet.payload()[238],
-        udp_packet.payload()[239],
-    ]);
+    let magic_cookie = u32::from_be_bytes([payload[236], payload[237], payload[238], payload[239]]);
     if magic_cookie != DHCP_MAGIC_COOKIE {
         return false;
     }
 
     let mut idx = 240;
-    while idx + 1 < udp_packet.payload().len() {
-        let opt_code = udp_packet.payload()[idx];
+    while idx + 1 < payload.len() {
+        let opt_code = payload[idx];
         if opt_code == DHCP_OPTION_MSG_TYPE {
             // Found a DHCP Option
-            let opt_len = udp_packet.payload()[idx + 1];
-            if idx + 1 + (opt_len as usize) < udp_packet.payload().len() {
+            let opt_len = payload[idx + 1];
+            if idx + 1 + (opt_len as usize) < payload.len() {
                 // Match agains the option in the payload
-                match udp_packet.payload()[idx + 2] {
+                match payload[idx + 2] {
                     // Only valid DHCP Packet Types are recognized
                     DHCP_DISCOVER | DHCP_ACK | DHCP_OFFER | DHCP_REQUEST => return true,
                     // Anything else returns false
@@ -176,7 +171,7 @@ pub fn is_dhcp(udp_packet: &UdpPacket) -> bool {
             }
         }
 
-        idx += 2 + (udp_packet.payload()[idx + 1] as usize)
+        idx += 2 + (payload[idx + 1] as usize)
     }
 
     false
@@ -193,18 +188,18 @@ const SNMP_GET_RESPONSE: u8 = 0xA2;
 const SNMP_SET_REQUEST: u8 = 0xA3;
 
 // Function to determine if a UDP Packet is a SNMP Packet
-pub fn is_snmp(udp_packet: &UdpPacket) -> bool {
+pub fn is_snmp(payload: &[u8]) -> bool {
     // Check payload size
-    if udp_packet.payload().len() < 6 {
+    if payload.len() < 6 {
         return false;
     }
 
     // Check version
-    let snmp_vers = udp_packet.payload()[0];
+    let snmp_vers = payload[0];
     match snmp_vers {
         SNMP_VERSION_1 | SNMP_VERSION_2C | SNMP_VERSION_3 => {
             // Check the message type
-            let message_type = udp_packet.payload()[1];
+            let message_type = payload[1];
             match message_type {
                 SNMP_GET_REQUEST | SNMP_SET_REQUEST | SNMP_GET_RESPONSE | SNMP_GET_NEXT_REQUEST => {
                     true
@@ -218,29 +213,29 @@ pub fn is_snmp(udp_packet: &UdpPacket) -> bool {
 }
 
 // Function to determine if a UDP packet is a SIP Packet
-pub fn is_sip(udp_packet: &UdpPacket) -> bool {
+pub fn is_sip(payload: &[u8]) -> bool {
     // Check payload size
-    if udp_packet.payload().len() < 3 {
+    if payload.len() < 3 {
         return false;
     }
 
     // Check if the packet starts with the expected header:
     // INV or SIP in binary
-    match &udp_packet.payload()[..3] {
+    match &payload[..3] {
         b"INV" | b"SIP" => true,
         _ => false,
     }
 }
 
 // Function to determine if a UDP packet is a RTP PacketSize
-fn is_rtp(udp_packet: &UdpPacket) -> bool {
+fn is_rtp(payload: &[u8]) -> bool {
     // Check the payload size
-    if udp_packet.payload().len() < 12 {
+    if payload.len() < 12 {
         return false;
     }
 
     // Check the version number by determining if the two MSB's == 2
-    (udp_packet.payload()[0] >> 6) == 2
+    (payload[0] >> 6) == 2
 }
 
 impl ProcessPacket for UdpRule {
@@ -248,29 +243,30 @@ impl ProcessPacket for UdpRule {
         if let Some(udp_packet) = UdpPacket::new(body) {
             // Check the next level protocols using the previously defined helper functions
             if let Some(next_protocol) = &self.next_protocol {
+                let payload = udp_packet.payload();
                 match next_protocol {
                     UdpNextLevel::DNS => {
-                        if !is_dns(&udp_packet) {
+                        if !is_dns(payload) {
                             return Ok(false);
                         }
                     }
                     UdpNextLevel::DHCP => {
-                        if !is_dhcp(&udp_packet) {
+                        if !is_dhcp(payload) {
                             return Ok(false);
                         }
                     }
                     UdpNextLevel::RTP => {
-                        if !is_rtp(&udp_packet) {
+                        if !is_rtp(payload) {
                             return Ok(false);
                         }
                     }
                     UdpNextLevel::SIP => {
-                        if !is_sip(&udp_packet) {
+                        if !is_sip(payload) {
                             return Ok(false);
                         }
                     }
                     UdpNextLevel::SNMP => {
-                        if !is_snmp(&udp_packet) {
+                        if !is_snmp(payload) {
                             return Ok(false);
                         }
                     }
@@ -301,23 +297,87 @@ mod udp_tests {
         // Test the is_dns helper function
         //
         // Check the length
-        if let Some(packet) = UdpPacket::new(&[0u8; 11]) {
-            assert!(!is_dns(&packet));
-        }
+        let short_payload = &[0u8; 11];
+        assert!(!is_dns(short_payload));
 
         // Check the header
-        if let Some(packet) = UdpPacket::new(&[0u8; 13]) {
-            assert!(!is_dns(&packet));
-        }
+        let bad_header_payload = &[0u8; 12];
+        assert!(!is_dns(bad_header_payload));
 
-        /* TODO: fix
-        if let Some(packet) = UdpPacket::new(&[
+        let valid_payload = &[
             0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ]) {
-            assert!(is_dns(&packet));
-        } else {
-        }
-        */
+        ];
+        assert!(is_dns(valid_payload));
+    }
+
+    #[test]
+    fn test_is_dhcp() {
+        // Test the is_dhcp helper function
+        //
+        // Check the length
+        let short = [0u8; 239];
+        assert!(!is_dhcp(&short));
+
+        // Check the cookie
+        let bad_header = [0u8; 241];
+        assert!(!is_dhcp(&bad_header));
+
+        // Check the options
+        let mut vec1 = vec![0u8; 236];
+        let vec2: Vec<u8> = vec![
+            // Magic Cookie: 0x63825363
+            0x63, 0x82, 0x53, 0x63, // DHCP Option: DHCP Message Type (53)
+            0x35, 0x01, 0x04, // Invalid option
+            // End Option (255)
+            0xFF,
+        ];
+        vec1.extend(vec2);
+
+        let invalid_opt: [u8; 244] = {
+            let mut array_data: [u8; 244] = [0u8; 244];
+            let len = vec1.len();
+            array_data[..len].copy_from_slice(&vec1);
+            array_data
+        };
+
+        assert!(!is_dhcp(&invalid_opt));
+
+        // Valid payload
+        let mut vec_valid = vec![0u8; 236];
+        let vec2_valid: Vec<u8> = vec![
+            // Magic Cookie: 0x63825363
+            0x63, 0x82, 0x53, 0x63, // DHCP Option: DHCP Message Type (53)
+            0x35, 0x01, 0x01, // DHCP Message Type: Discover (1)
+            // End Option (255)
+            0xFF,
+        ];
+        vec_valid.extend(vec2_valid);
+        let valid_payload: [u8; 244] = {
+            let mut array_data: [u8; 244] = [0u8; 244];
+            let len = vec_valid.len();
+            array_data[..len].copy_from_slice(&vec_valid);
+            array_data
+        };
+        assert!(is_dhcp(&valid_payload))
+    }
+
+    #[test]
+    fn test_is_snmp() {
+        // Test length
+        let short = [0u8; 5];
+        assert!(!is_snmp(&short));
+
+        // Test version number
+        let invalid_version = [0x05, 0xA0, 0x00, 0x00, 0x00, 0x00];
+        assert!(!is_snmp(&invalid_version));
+
+        // Test invalid type
+        let invalid_type = [0x00, 0xA4, 0x00, 0x00, 0x00, 0x00];
+        assert!(!is_snmp(&invalid_type));
+
+        // Valid
+        let valid = [0x00, 0xA0, 0x00, 0x00, 0x00, 0x00];
+        assert!(is_snmp(&valid))
     }
 }
 
@@ -341,7 +401,7 @@ enum TcpOption {
 #[derive(Deserialize, Debug)]
 pub struct TcpRule {
     options: Option<Vec<TcpOption>>,
-    flags: Option<u16>,
+    flags: Option<u8>,
     max_window_size: Option<u16>,
     max_payload_size: Option<usize>,
 }
@@ -349,7 +409,7 @@ pub struct TcpRule {
 impl TcpRule {
     fn new(
         options: Option<Vec<TcpOption>>,
-        flags: Option<u16>,
+        flags: Option<u8>,
         max_window_size: Option<u16>,
         max_payload_size: Option<usize>,
     ) -> Self {

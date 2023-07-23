@@ -7,16 +7,16 @@ description = "A simple packet sniffing and intrusion detection program"
 
 [dependencies]
 anyhow = "1.0.72"
-clap = { version = "4.3.12", features = ["derive"] }
+clap = { version = "4.3.19", features = ["derive"] }
 dns-parser = "0.8.0"
 etherparse = "0.13.0"
 httparse = "1.8.0"
 log = "0.4.19"
 log4rs = { version = "1.2.0", features = ["gzip"] }
-pnet = "0.33.0"
-serde = {version = "1.0.171", features = ["derive"]}
+pnet = "0.34.0"
+serde = {version = "1.0.174", features = ["derive"]}
 serde_json = "1.0.103"
-serde_yaml = "0.9.23"
+serde_yaml = "0.9.25"
 toml = "0.7.6"
 
 [dev-dependencies]
