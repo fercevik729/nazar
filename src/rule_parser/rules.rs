@@ -291,6 +291,36 @@ impl ProcessPacket for UdpRule {
     }
 }
 
+#[cfg(test)]
+mod udp_tests {
+
+    use super::*;
+
+    #[test]
+    fn test_is_dns() {
+        // Test the is_dns helper function
+        //
+        // Check the length
+        if let Some(packet) = UdpPacket::new(&[0u8; 11]) {
+            assert!(!is_dns(&packet));
+        }
+
+        // Check the header
+        if let Some(packet) = UdpPacket::new(&[0u8; 13]) {
+            assert!(!is_dns(&packet));
+        }
+
+        /* TODO: fix
+        if let Some(packet) = UdpPacket::new(&[
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]) {
+            assert!(is_dns(&packet));
+        } else {
+        }
+        */
+    }
+}
+
 // Enum representing TCP Options
 #[derive(Deserialize, Debug)]
 enum TcpOption {
