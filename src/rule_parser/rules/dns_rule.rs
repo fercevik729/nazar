@@ -81,6 +81,8 @@ impl DnsRule {
         // A helper method that iterates over all the record data types in the rule
         // and sees if any match the target_resource_type. If so it returns true
         // otherwise false.
+        //
+        // If no resource types are specified it returns true
         if let Some(r_types) = &self.record_types {
             return r_types.iter().any(|r| match r {
                 DnsType::A => matches!(target_resource_type, dns_parser::RData::A(_)),
@@ -151,6 +153,18 @@ impl ProcessPacket for DnsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_qtype_matches() -> Result<()> {
+        // No query types so treat the rule as a wildcard
+        let rule_1 = DnsRule::new(None, None, None);
+        assert!(rule_1.qtype_matches(dns_parser::QueryType::NS));
+
+        let rule_2 = DnsRule::new(None, Some(vec![DnsType::Mx]), None);
+        assert!(rule_2.qtype_matches(dns_parser::QueryType::MX));
+
+        Ok(())
+    }
 
     #[test]
     fn test_dns_process_packet_1() -> Result<()> {

@@ -274,23 +274,22 @@ fn handle_ipv6_packet(ipv6_packet: Ipv6Packet) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::path::PathBuf;
-
-    use crate::validate_file_ext;
 
     #[test]
     fn test_validate_file_ext() {
         let fp = PathBuf::from(r"/etc/config.toml");
 
-        assert_eq!(true, validate_file_ext(&fp, "toml"));
-        assert_eq!(false, validate_file_ext(&fp, "csv"));
-        assert_eq!(false, validate_file_ext(&fp, "exe"));
-        assert_eq!(false, validate_file_ext(&fp, "tom"));
+        assert!(validate_file_ext(&fp, "toml"));
+        assert!(!validate_file_ext(&fp, "csv"));
+        assert!(!validate_file_ext(&fp, "exe"));
+        assert!(!validate_file_ext(&fp, "tom"));
 
         let fp2 = PathBuf::from(r"/etc/config");
-        assert_eq!(false, validate_file_ext(&fp2, "toml"));
-        assert_eq!(false, validate_file_ext(&fp2, "csv"));
-        assert_eq!(false, validate_file_ext(&fp2, "exe"));
-        assert_eq!(false, validate_file_ext(&fp2, "tom"));
+        assert!(!validate_file_ext(&fp2, "toml"));
+        assert!(!validate_file_ext(&fp2, "csv"));
+        assert!(!validate_file_ext(&fp2, "exe"));
+        assert!(!validate_file_ext(&fp2, "tom"));
     }
 }

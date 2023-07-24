@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::fs;
 
 // Utility functions for integration tests
-
+#[allow(dead_code)]
 pub fn post_test_cleanup(path: &str) -> Result<()> {
     // Utility function for cleaning up after integration tests
     // For now it only removes the logs directory after testing

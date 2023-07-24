@@ -135,10 +135,7 @@ pub fn is_sip(payload: &[u8]) -> bool {
 
     // Check if the packet starts with the expected header:
     // INV or SIP in binary
-    match &payload[..3] {
-        b"INV" | b"SIP" => true,
-        _ => false,
-    }
+    matches!(&payload[..3], b"INV" | b"SIP")
 }
 
 // Function to determine if a UDP packet is a RTP PacketSize

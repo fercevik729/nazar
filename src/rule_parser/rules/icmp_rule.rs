@@ -191,7 +191,7 @@ mod tests {
         let icmp_bytes = binding.packet();
         let icmpv4_rule =
             IcmpRule::new(Some(vec![IcmpType::EchoRequest, IcmpType::EchoReply]), None);
-        assert!(icmpv4_rule.process(&icmp_bytes)?);
+        assert!(icmpv4_rule.process(icmp_bytes)?);
         Ok(())
     }
 
@@ -207,7 +207,7 @@ mod tests {
             Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
             None,
         );
-        assert!(!icmpv4_rule.process(&icmp_bytes)?);
+        assert!(!icmpv4_rule.process(icmp_bytes)?);
         Ok(())
     }
 
@@ -223,7 +223,7 @@ mod tests {
             Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
             None,
         );
-        assert!(icmpv4_rule.process(&icmp_bytes)?);
+        assert!(icmpv4_rule.process(icmp_bytes)?);
         Ok(())
     }
 

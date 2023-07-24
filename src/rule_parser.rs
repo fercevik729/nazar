@@ -14,7 +14,7 @@ pub trait Validate {
 }
 
 // A struct to handle inclusive IP address ranges
-#[derive(Deserialize, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct IpRange {
     begin: Ipv6Addr,
     end: Option<Ipv6Addr>,

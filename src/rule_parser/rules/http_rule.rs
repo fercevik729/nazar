@@ -14,22 +14,6 @@ enum HttpMethod {
     Trace,
 }
 
-impl fmt::Display for HttpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Get => write!(f, "GET"),
-            Self::Head => write!(f, "HEAD"),
-            Self::Post => write!(f, "POST"),
-            Self::Put => write!(f, "PUT"),
-            Self::Patch => write!(f, "PATCH"),
-            Self::Delete => write!(f, "DELETE"),
-            Self::Connection => write!(f, "CONNECTION"),
-            Self::Options => write!(f, "OPTIONS"),
-            Self::Trace => write!(f, "TRACE"),
-        }
-    }
-}
-
 // Struct to represent an HTTP rule
 #[derive(Deserialize, Debug)]
 pub struct HttpRule {
@@ -67,6 +51,22 @@ impl HttpRule {
             body_contains: body_patterns.map(Patterns),
         }
     }
+
+    fn match_method(expected: &HttpMethod, actual: &str) -> bool {
+        // Matches an HTTP Method in a rule to an actual parse HTTP Method
+        // Returns true if they match, false otherwise
+        match expected {
+            HttpMethod::Get => actual == "GET",
+            HttpMethod::Put => actual == "PUT",
+            HttpMethod::Post => actual == "POST",
+            HttpMethod::Head => actual == "HEAD",
+            HttpMethod::Patch => actual == "PATCH",
+            HttpMethod::Trace => actual == "TRACE",
+            HttpMethod::Delete => actual == "DELETE",
+            HttpMethod::Options => actual == "OPTIONS",
+            HttpMethod::Connection => actual == "CONNECTION",
+        }
+    }
 }
 
 impl ProcessPacket for HttpRule {
@@ -92,7 +92,7 @@ impl ProcessPacket for HttpRule {
         match req.method {
             Some(m) => {
                 if let Some(rm) = &self.method {
-                    if m != rm.to_string() {
+                    if !HttpRule::match_method(rm, m) {
                         return Ok(false);
                     }
                 }
@@ -167,6 +167,19 @@ impl ProcessPacket for HttpRule {
 mod tests {
     use super::*;
     use crate::hashmap;
+
+    #[test]
+    fn test_http_process_packet_0() -> Result<()> {
+        let req = b"POST nazar.com/api/user HTTP/1.1\r\n\
+                        Host: example.com\r\n\
+                        Content-Type: application/json\r\n\
+                        Content-Length: 25\r\n\
+                        \r\n\
+                        {\"username\":\"john\",\"password\":\"secret\"}";
+        let rule = HttpRule::new(Some(HttpMethod::Get), None, None, None);
+        assert!(!rule.process(req)?);
+        Ok(())
+    }
 
     #[test]
     fn test_http_process_packet_1() -> Result<()> {

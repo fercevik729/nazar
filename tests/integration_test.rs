@@ -5,8 +5,24 @@ use nazar::{
     rule_parser::{rules::RuleConfig, BWList, IpRange, PortRange, Protocol},
 };
 use std::net::{IpAddr, Ipv6Addr};
+use std::path::PathBuf;
 
 // Currently only supports json
+#[test]
+fn test_parse_rules_0() -> Result<()> {
+    // Test for incorrect config file ext
+    let invalid_ext = PathBuf::from(r"invalid.txt");
+    let result = parse_rules(&invalid_ext);
+    assert!(result.is_err());
+
+    // Test for missing config
+    let missing_fp = PathBuf::from(r"missing.json");
+    let result = parse_rules(&missing_fp);
+    assert!(result.is_err());
+
+    Ok(())
+}
+
 #[test]
 fn test_parse_rules_1() -> Result<()> {
     let file = assert_fs::NamedTempFile::new("rules.json")?;

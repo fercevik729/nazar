@@ -4,17 +4,17 @@ use super::*;
 #[derive(Deserialize, Debug)]
 enum TcpOption {
     /// Maximum segment size
-    MSS,
+    Mss,
     /// Window scale
-    WSCALE,
+    Wscale,
     /// Selective acknowledgment
-    SACK,
+    Sack,
     /// End of Options list
-    EOL,
+    Eol,
     /// Timestamps
-    TIMESTAMPS,
+    Timestamps,
     /// No operation
-    NOP,
+    Nop,
 }
 
 #[derive(Deserialize, Debug)]
@@ -48,12 +48,12 @@ impl TcpRule {
         // since in this case any TCP option is valid
         if let Some(rule_options) = &self.options {
             return rule_options.iter().any(|ro| match ro {
-                TcpOption::MSS => x.get_number() == tcp::TcpOptionNumbers::MSS,
-                TcpOption::EOL => x.get_number() == tcp::TcpOptionNumbers::EOL,
-                TcpOption::NOP => x.get_number() == tcp::TcpOptionNumbers::NOP,
-                TcpOption::SACK => x.get_number() == tcp::TcpOptionNumbers::SACK,
-                TcpOption::WSCALE => x.get_number() == tcp::TcpOptionNumbers::WSCALE,
-                TcpOption::TIMESTAMPS => x.get_number() == tcp::TcpOptionNumbers::TIMESTAMPS,
+                TcpOption::Mss => x.get_number() == tcp::TcpOptionNumbers::MSS,
+                TcpOption::Eol => x.get_number() == tcp::TcpOptionNumbers::EOL,
+                TcpOption::Nop => x.get_number() == tcp::TcpOptionNumbers::NOP,
+                TcpOption::Sack => x.get_number() == tcp::TcpOptionNumbers::SACK,
+                TcpOption::Wscale => x.get_number() == tcp::TcpOptionNumbers::WSCALE,
+                TcpOption::Timestamps => x.get_number() == tcp::TcpOptionNumbers::TIMESTAMPS,
             });
         }
 
@@ -118,7 +118,7 @@ mod tests {
     fn test_tcp_process_packet_1() -> Result<()> {
         // Tests for TCP options in particular
         // 1 option - matches
-        let rule = TcpRule::new(Some(vec![TcpOption::NOP]), None, None, None);
+        let rule = TcpRule::new(Some(vec![TcpOption::Nop]), None, None, None);
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS); // TCP header data offset
@@ -151,7 +151,7 @@ mod tests {
     fn test_tcp_process_packet_2() -> Result<()> {
         // Tests for TCP Flags in particular
         // 1 flag - matches
-        let rule = TcpRule::new(Some(vec![TcpOption::MSS]), Some(0x02), None, None);
+        let rule = TcpRule::new(Some(vec![TcpOption::Mss]), Some(0x02), None, None);
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS);
@@ -194,12 +194,16 @@ mod tests {
     fn test_tcp_process_packet_3() -> Result<()> {
         // Test for maximum window packet_size
         // Should pass: < 1024
-        let rule = TcpRule::new(Some(vec![TcpOption::MSS]), Some(0x02), Some(1024), None);
+        let rule = TcpRule::new(Some(vec![TcpOption::Sack]), Some(0x02), Some(1024), None);
         let buff = vec![0u8; TCP_PACKET_LEN];
+        let acks = [0u32; 1];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS);
         tcp_packet.set_flags(tcp::TcpFlags::SYN);
-        tcp_packet.set_options(&[tcp::TcpOption::mss(10)]);
+        tcp_packet.set_options(&[
+            tcp::TcpOption::sack_perm(),
+            tcp::TcpOption::selective_ack(&acks),
+        ]);
         tcp_packet.set_window(512);
 
         assert!(rule.process(tcp_packet.packet())?);
@@ -209,7 +213,10 @@ mod tests {
         let mut tcp_packet_2 = MutableTcpPacket::owned(buff_2).unwrap();
         tcp_packet_2.set_data_offset(TCP_PACKET_OFS);
         tcp_packet_2.set_flags(tcp::TcpFlags::SYN);
-        tcp_packet_2.set_options(&[tcp::TcpOption::mss(10)]);
+        tcp_packet_2.set_options(&[
+            tcp::TcpOption::sack_perm(),
+            tcp::TcpOption::selective_ack(&acks),
+        ]);
         tcp_packet_2.set_window(2048);
 
         assert!(!rule.process(tcp_packet_2.packet())?);
@@ -219,7 +226,10 @@ mod tests {
         let mut tcp_packet_3 = MutableTcpPacket::owned(buff_3).unwrap();
         tcp_packet_3.set_data_offset(TCP_PACKET_OFS);
         tcp_packet_3.set_flags(tcp::TcpFlags::SYN);
-        tcp_packet_3.set_options(&[tcp::TcpOption::mss(10)]);
+        tcp_packet_3.set_options(&[
+            tcp::TcpOption::sack_perm(),
+            tcp::TcpOption::selective_ack(&acks),
+        ]);
         tcp_packet_3.set_window(1024);
 
         assert!(rule.process(tcp_packet_3.packet())?);
@@ -230,12 +240,17 @@ mod tests {
     fn test_tcp_process_packet_4() -> Result<()> {
         // Test for maximum payload size
         // Should pass: <= 30
-        let rule = TcpRule::new(Some(vec![TcpOption::MSS]), Some(0x02), Some(1024), Some(30));
+        let rule = TcpRule::new(
+            Some(vec![TcpOption::Wscale]),
+            Some(0x02),
+            Some(1024),
+            Some(30),
+        );
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS);
         tcp_packet.set_flags(tcp::TcpFlags::SYN);
-        tcp_packet.set_options(&[tcp::TcpOption::mss(10)]);
+        tcp_packet.set_options(&[tcp::TcpOption::wscale(1)]);
         tcp_packet.set_window(512);
 
         assert!(rule.process(tcp_packet.packet())?);

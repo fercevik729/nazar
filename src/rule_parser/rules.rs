@@ -14,7 +14,7 @@ use pnet::packet::{
     udp::UdpPacket,
     Packet, PacketSize,
 };
-use std::{collections::HashMap, fmt, net::IpAddr};
+use std::{collections::HashMap, net::IpAddr};
 
 mod dns_rule;
 mod http_rule;
