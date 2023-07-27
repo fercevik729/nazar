@@ -33,7 +33,7 @@ pub struct RuleConfig {
     /// Option-al blacklist or whitelist of protocols
     pub protocol_list: Option<BWList<Protocol>>,
     /// Option-al vector of user-defined rules
-    pub rules: Option<Vec<Rule>>,
+    pub rules: Option<Vec<CustomRule>>,
     // Option-al threshold to prevent SYN flood attacks
     pub syn_threshold: Option<u64>,
 }
@@ -52,13 +52,25 @@ pub enum IdsAction {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Rule {
+pub struct CustomRule {
     src_ip: Option<IpAddr>,
     src_port: Option<i32>,
     dest_ip: Option<IpAddr>,
     dest_port: Option<i32>,
     prot_rule: ProtocolRule,
     action: IdsAction,
+}
+
+impl ProcessPacket for CustomRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        // Check the IpAddrs
+        //
+        // Check the port numbers
+        //
+        // Get the result of processing the protocol rule
+        //
+        Ok(true)
+    }
 }
 
 // Enum representing custom transport layer
@@ -73,6 +85,19 @@ pub enum ProtocolRule {
     // Application Protocols
     Http(HttpRule),
     Dns(DnsRule),
+}
+
+impl ProcessPacket for ProtocolRule {
+    fn process(&self, body: &[u8]) -> Result<bool> {
+        match self {
+            Self::Icmp(rule) => rule.process(body),
+            Self::Icmpv6(rule) => rule.process(body),
+            Self::Tcp(rule) => rule.process(body),
+            Self::Udp(rule) => rule.process(body),
+            Self::Http(rule) => rule.process(body),
+            Self::Dns(rule) => rule.process(body),
+        }
+    }
 }
 
 // Struct that represents a vector of string patterns
