@@ -35,27 +35,19 @@ impl TcpRule {
         max_payload_size: Option<usize>,
         src_port: Option<u16>,
         dest_port: Option<u16>,
-    ) -> Result<Self> {
-        match src_port {
-            Some(s) if !(1..=65535).contains(&s) => {
-                return Err(anyhow!("Port number {} must be in the range 1 to 65535", s))
-            }
-            _ => match dest_port {
-                Some(d) if !(1..=65535).contains(&d) => {
-                    return Err(anyhow!("Port number {} must be in the range 1 to 65535", d))
-                }
-                _ => Ok(Self {
-                    options,
-                    flags,
-                    max_window_size,
-                    max_payload_size,
-                    src_port,
-                    dest_port,
-                }),
-            },
+    ) -> Self {
+        // Constructor for TcpRule
+        // Returns None if either the src or dest port was out
+        // of the range of ports from 1 .. 65535 inclusive
+        Self {
+            options,
+            flags,
+            max_window_size,
+            max_payload_size,
+            src_port,
+            dest_port,
         }
     }
-
     fn match_opts(&self, x: tcp::TcpOptionPacket) -> bool {
         // If tcp options are specified in the rule, this function will return true
         // if at least one of the options are contained in the packet, otherwise it will
@@ -104,7 +96,7 @@ impl ProcessPacket for TcpRule {
 
             // Check the flags
             if let Some(flags) = self.flags {
-                if !(flags & tcp_packet.get_flags() > 0) {
+                if flags & tcp_packet.get_flags() == 0 {
                     return Ok(false);
                 }
             }
@@ -145,16 +137,10 @@ mod tests {
     const TCP_PACKET_OFS: u8 = 10;
 
     #[test]
-    fn test_ports() -> Result<()> {
-        // TODO: test the ports bound checking
-        Ok(())
-    }
-
-    #[test]
     fn test_tcp_process_packet_1() -> Result<()> {
         // Tests for TCP options in particular
         // 1 option - matches
-        let rule = TcpRule::new(Some(vec![TcpOption::Nop]), None, None, None, None, None)?;
+        let rule = TcpRule::new(Some(vec![TcpOption::Nop]), None, None, None, None, None);
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS); // TCP header data offset
@@ -194,7 +180,7 @@ mod tests {
             None,
             None,
             None,
-        )?;
+        );
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS);
@@ -244,7 +230,7 @@ mod tests {
             None,
             None,
             None,
-        )?;
+        );
         let buff = vec![0u8; TCP_PACKET_LEN];
         let acks = [0u32; 1];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
@@ -297,7 +283,7 @@ mod tests {
             Some(40),
             None,
             None,
-        )?;
+        );
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
         tcp_packet.set_data_offset(TCP_PACKET_OFS);
@@ -329,7 +315,7 @@ mod tests {
             Some(50),
             Some(80),
             Some(80),
-        )?;
+        );
 
         let buff = vec![0u8; TCP_PACKET_LEN];
         let mut tcp_packet = MutableTcpPacket::owned(buff).unwrap();
