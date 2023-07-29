@@ -70,12 +70,12 @@ impl HttpRule {
 }
 
 impl ProcessPacket for HttpRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         // Assumes that packet is some kind of HTTP Packet on port 80 or 8080
         // though not necessarily a valid one.
         //
         // The function parses the byte slice into a Request struct using the httparse
-        // library. It returns an error if something went wrong parsing the required
+        // library. It returns None if something went wrong parsing the required
         // fields of the HTTP request
         //
         // All parameters in the Rule struct are optional, and if not provided explicitly
@@ -87,21 +87,17 @@ impl ProcessPacket for HttpRule {
         // Parse request
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
-        let res = req.parse(body)?;
+        let res = req.parse(body).ok();
 
         match req.method {
             Some(m) => {
                 if let Some(rm) = &self.method {
                     if !HttpRule::match_method(rm, m) {
-                        return Ok(false);
+                        return Some(false);
                     }
                 }
             }
-            None => {
-                return Err(anyhow!(
-                    "Malformed HTTP Request, no method field could be parsed"
-                ))
-            }
+            None => return None,
         };
         // Check the request path
         // Must match at least one of the patterns in the path_contains field
@@ -109,15 +105,11 @@ impl ProcessPacket for HttpRule {
             Some(p) => {
                 if let Some(rp) = &self.path_contains {
                     if !rp.match_exists(p.as_bytes()) {
-                        return Ok(false);
+                        return Some(false);
                     }
                 }
             }
-            None => {
-                return Err(anyhow!(
-                    "Malformed HTTP request, no path field could be parsed"
-                ))
-            }
+            None => return None,
         };
 
         // Check the headers and make sure at least one of the header values is
@@ -142,7 +134,7 @@ impl ProcessPacket for HttpRule {
             // If no headers with matching values could be found in the
             // request, return false
             if !found {
-                return Ok(false);
+                return Some(false);
             }
         }
 
@@ -151,15 +143,15 @@ impl ProcessPacket for HttpRule {
         // If the body is empty/nonexistent but there
         // are patterns in the rule the function should
         // return false
-        if let Status::Complete(ofs) = res {
+        if let Some(Status::Complete(ofs)) = res {
             if let Some(bp) = &self.body_contains {
-                return Ok(bp.match_exists(&body[ofs..]));
+                return Some(bp.match_exists(&body[ofs..]));
             }
         } else if self.body_contains.is_some() {
-            return Ok(false);
+            return Some(false);
         }
 
-        Ok(true)
+        Some(true)
     }
 }
 
@@ -169,7 +161,7 @@ mod tests {
     use crate::hashmap;
 
     #[test]
-    fn test_http_process_packet_0() -> Result<()> {
+    fn test_http_process_packet_0() {
         let req = b"POST nazar.com/api/user HTTP/1.1\r\n\
                         Host: example.com\r\n\
                         Content-Type: application/json\r\n\
@@ -177,12 +169,11 @@ mod tests {
                         \r\n\
                         {\"username\":\"john\",\"password\":\"secret\"}";
         let rule = HttpRule::new(Some(HttpMethod::Get), None, None, None);
-        assert!(!rule.process(req)?);
-        Ok(())
+        assert!(!rule.process(req).unwrap());
     }
 
     #[test]
-    fn test_http_process_packet_1() -> Result<()> {
+    fn test_http_process_packet_1() {
         let req = b"POST nazar.com/api/user HTTP/1.1\r\n\
                         Host: example.com\r\n\
                         Content-Type: application/json\r\n\
@@ -191,7 +182,7 @@ mod tests {
                         {\"username\":\"john\",\"password\":\"secret\"}";
 
         let rule = HttpRule::new(Some(HttpMethod::Post), None, None, None);
-        assert!(rule.process(req)?);
+        assert!(rule.process(req).unwrap());
 
         let rule_2 = HttpRule::new(
             Some(HttpMethod::Post),
@@ -199,13 +190,11 @@ mod tests {
             None,
             Some(vec![String::from("secret"), String::from("missing")]),
         );
-        assert!(rule_2.process(req)?);
-
-        Ok(())
+        assert!(rule_2.process(req).unwrap());
     }
 
     #[test]
-    fn test_http_process_packet_2() -> Result<()> {
+    fn test_http_process_packet_2() {
         let req = b"POST /api/user HTTP/1.1\r\n\
                         Host: example.com\r\n\
                         Content-Type: application/json\r\n\
@@ -221,7 +210,7 @@ mod tests {
             Some(vec![String::from("/api"), String::from("/usr")]),
             Some(vec![String::from("secret"), String::from("jenn")]),
         );
-        assert!(rule.process(req)?);
+        assert!(rule.process(req).unwrap());
 
         let rule2 = HttpRule::new(
             Some(HttpMethod::Post),
@@ -230,13 +219,11 @@ mod tests {
             None,
         );
 
-        assert!(!rule2.process(req)?);
-
-        Ok(())
+        assert!(!rule2.process(req).unwrap());
     }
 
     #[test]
-    fn test_http_process_packet_3() -> Result<()> {
+    fn test_http_process_packet_3() {
         let req = b"GET /virus/download.php HTTP/1.1\r\n\
                     Host: sussy.com\r\n";
 
@@ -250,7 +237,7 @@ mod tests {
             None,
         );
 
-        assert!(rule.process(req)?);
+        assert!(rule.process(req).unwrap());
 
         let rule_2 = HttpRule::new(
             Some(HttpMethod::Get),
@@ -261,8 +248,6 @@ mod tests {
             Some(vec![String::from("Non existent body Value")]),
         );
 
-        assert!(!rule_2.process(req)?);
-
-        Ok(())
+        assert!(!rule_2.process(req).unwrap());
     }
 }

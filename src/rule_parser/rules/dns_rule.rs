@@ -103,12 +103,12 @@ impl DnsRule {
 }
 
 impl ProcessPacket for DnsRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         // Assumes that the packet is some kind of DNS Packet over UDP/53 or TCP/53
         // though not necessarily a valid one
         //
         // The function parses the byte slice into a dns_parser::Packet struct using the
-        // dns_parser library. It returns an error if something went wrong during parsing
+        // dns_parser library. It returns None if something went wrong during parsing
         //
         // All parameters in the Rule struct are optional, and if not explicitly provided,
         // this function will skip those parameters
@@ -117,36 +117,40 @@ impl ProcessPacket for DnsRule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        let dns_request = dns_parser::Packet::parse(body)?;
-        // Iterate over all the questions in the DNS packet and see if any match
-        // the patterns specified in the DNS rule
-        let questions = dns_request.questions;
-        if let Some(q_patterns) = &self.query_names {
-            if !questions
-                .iter()
-                .any(|q| q_patterns.match_exists(q.qname.to_string().as_bytes()))
-            {
-                return Ok(false);
+        if let Some(dns_request) = dns_parser::Packet::parse(body).ok() {
+            // Iterate over all the questions in the DNS packet and see if any match
+            // the patterns specified in the DNS rule
+            let questions = dns_request.questions;
+            if let Some(q_patterns) = &self.query_names {
+                if !questions
+                    .iter()
+                    .any(|q| q_patterns.match_exists(q.qname.to_string().as_bytes()))
+                {
+                    return Some(false);
+                }
             }
-        }
-        // Iterate over all the questions in the DNS packet and see if any match
-        // one of the query types specified in the DNS Rule
-        if self.query_types.is_some() && !questions.iter().any(|q| self.qtype_matches(q.qtype)) {
-            return Ok(false);
+            // Iterate over all the questions in the DNS packet and see if any match
+            // one of the query types specified in the DNS Rule
+            if self.query_types.is_some() && !questions.iter().any(|q| self.qtype_matches(q.qtype))
+            {
+                return Some(false);
+            }
+
+            // Iterate over all the answer records in the DNS packet and see if any match
+            // one of the record types specified in the DNS Rule
+            if self.record_types.is_some()
+                && !dns_request
+                    .answers
+                    .iter()
+                    .any(|a| self.rtype_matches(&a.data))
+            {
+                return Some(false);
+            }
+
+            return Some(true);
         }
 
-        // Iterate over all the answer records in the DNS packet and see if any match
-        // one of the record types specified in the DNS Rule
-        if self.record_types.is_some()
-            && !dns_request
-                .answers
-                .iter()
-                .any(|a| self.rtype_matches(&a.data))
-        {
-            return Ok(false);
-        }
-
-        Ok(true)
+        None
     }
 }
 
@@ -155,19 +159,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_qtype_matches() -> Result<()> {
+    fn test_qtype_matches() {
         // No query types so treat the rule as a wildcard
         let rule_1 = DnsRule::new(None, None, None);
         assert!(rule_1.qtype_matches(dns_parser::QueryType::NS));
 
         let rule_2 = DnsRule::new(None, Some(vec![DnsType::Mx]), None);
         assert!(rule_2.qtype_matches(dns_parser::QueryType::MX));
-
-        Ok(())
     }
 
     #[test]
-    fn test_dns_process_packet_1() -> Result<()> {
+    fn test_dns_process_packet_1() {
         let rule = DnsRule::new(
             Some(vec![String::from("malicious.com")]),
             Some(vec![DnsType::A]),
@@ -181,7 +183,7 @@ mod tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(rule.process(&dns_packet)?);
+        assert!(rule.process(&dns_packet).unwrap());
 
         let mut builder2 = dns_parser::Builder::new_query(2, false);
         builder2.add_question(
@@ -191,13 +193,11 @@ mod tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
-        assert!(!rule.process(&dns_packet2)?);
-
-        Ok(())
+        assert!(!rule.process(&dns_packet2).unwrap());
     }
 
     #[test]
-    fn test_dns_process_packet_2() -> Result<()> {
+    fn test_dns_process_packet_2() {
         let rule = DnsRule::new(
             Some(vec![
                 String::from("suspicious.com"),
@@ -214,7 +214,7 @@ mod tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(rule.process(&dns_packet)?);
+        assert!(rule.process(&dns_packet).unwrap());
 
         let mut builder2 = dns_parser::Builder::new_query(1, false);
         builder2.add_question(
@@ -225,13 +225,11 @@ mod tests {
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
 
-        assert!(!rule.process(&dns_packet2)?);
-
-        Ok(())
+        assert!(!rule.process(&dns_packet2).unwrap());
     }
 
     #[test]
-    fn test_dns_process_packet_3() -> Result<()> {
+    fn test_dns_process_packet_3() {
         let rule = DnsRule::new(
             Some(vec![
                 String::from("suspicious.com"),
@@ -249,7 +247,7 @@ mod tests {
             dns_parser::QueryClass::IN,
         );
         let dns_packet = builder.build().unwrap_or_else(|x| x);
-        assert!(!rule.process(&dns_packet)?);
+        assert!(!rule.process(&dns_packet).unwrap());
 
         let mut builder2 = dns_parser::Builder::new_query(1, false);
         builder2.add_question(
@@ -260,7 +258,6 @@ mod tests {
         );
         let dns_packet2 = builder2.build().unwrap_or_else(|x| x);
 
-        assert!(!rule.process(&dns_packet2)?);
-        Ok(())
+        assert!(!rule.process(&dns_packet2).unwrap());
     }
 }

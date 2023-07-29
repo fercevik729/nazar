@@ -46,7 +46,7 @@ fn match_icmpv6_types(curr: &Icmpv6Type, target: &etherparse::Icmpv6Type) -> boo
 }
 
 impl ProcessPacket for Icmpv6Rule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         // Assumes that the packet is some kind of ICMPv6 Packet though not necessarily a valid one
         // The function parses the byte slice into a etherparse::Icmpv6Slice struct using the
         // etherparse library. It returns an error if something went wrong during parsing
@@ -58,27 +58,30 @@ impl ProcessPacket for Icmpv6Rule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        let icmp_packet: etherparse::Icmpv6Slice = etherparse::Icmpv6Slice::from_slice(body)?;
-
-        // Check the ICMPv6 headers
-        if let Some(headers) = &self.icmpv6_types {
-            let target = icmp_packet.header();
-            if !headers
-                .iter()
-                .any(|header| match_icmpv6_types(header, &target.icmp_type))
-            {
-                return Ok(false);
+        let icmp_packet = etherparse::Icmpv6Slice::from_slice(body).ok();
+        if let Some(packet) = icmp_packet {
+            // Check the ICMPv6 headers
+            if let Some(headers) = &self.icmpv6_types {
+                let target = packet.header();
+                if !headers
+                    .iter()
+                    .any(|header| match_icmpv6_types(header, &target.icmp_type))
+                {
+                    return Some(false);
+                }
             }
+
+            // Check the ICMPv6 codes
+            if let Some(codes) = &self.icmpv6_codes {
+                let target = &packet.code_u8();
+                if !codes.iter().any(|c| c == target) {
+                    return Some(false);
+                }
+            }
+            return Some(true);
         }
 
-        // Check the ICMPv6 codes
-        if let Some(codes) = &self.icmpv6_codes {
-            let target = &icmp_packet.code_u8();
-            if !codes.iter().any(|c| c == target) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        None
     }
 }
 
@@ -132,7 +135,7 @@ fn match_icmpv4_types(curr: &IcmpType, target: &Icmpv4Type) -> bool {
 }
 
 impl ProcessPacket for IcmpRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         // Assumes that the packet is some kind of ICMPv4 Packet though not necessarily a valid one
         // The function parses the byte slice into a etherparse::Icmpv4Slice struct using the
         // etherparse library. It returns an error if something went wrong during parsing
@@ -144,27 +147,31 @@ impl ProcessPacket for IcmpRule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        let icmp_packet: etherparse::Icmpv4Slice = etherparse::Icmpv4Slice::from_slice(body)?;
+        let icmp_packet = etherparse::Icmpv4Slice::from_slice(body).ok();
 
-        // Check the ICMPv4 headers
-        if let Some(headers) = &self.icmp_types {
-            let target = icmp_packet.header();
-            if !headers
-                .iter()
-                .any(|header| match_icmpv4_types(header, &target.icmp_type))
-            {
-                return Ok(false);
+        if let Some(packet) = icmp_packet {
+            // Check the ICMPv4 headers
+            if let Some(headers) = &self.icmp_types {
+                let target = packet.header();
+                if !headers
+                    .iter()
+                    .any(|header| match_icmpv4_types(header, &target.icmp_type))
+                {
+                    return Some(false);
+                }
             }
+
+            // Check the ICMPv4 codes
+            if let Some(codes) = &self.icmp_codes {
+                let target = &packet.code_u8();
+                if !codes.iter().any(|c| c == target) {
+                    return Some(false);
+                }
+            }
+            return Some(true);
         }
 
-        // Check the ICMPv4 codes
-        if let Some(codes) = &self.icmp_codes {
-            let target = &icmp_packet.code_u8();
-            if !codes.iter().any(|c| c == target) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        None
     }
 }
 
@@ -182,7 +189,7 @@ mod tests {
     };
 
     #[test]
-    fn test_icmpv4_1() -> Result<()> {
+    fn test_icmpv4_1() {
         let mut buffer = [0u8; 64];
         let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
         icmp_packet.set_icmp_type(pnetIcmpType(8));
@@ -191,12 +198,11 @@ mod tests {
         let icmp_bytes = binding.packet();
         let icmpv4_rule =
             IcmpRule::new(Some(vec![IcmpType::EchoRequest, IcmpType::EchoReply]), None);
-        assert!(icmpv4_rule.process(icmp_bytes)?);
-        Ok(())
+        assert!(icmpv4_rule.process(icmp_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv4_2() -> Result<()> {
+    fn test_icmpv4_2() {
         let mut buffer = [0u8; 64];
         let mut icmp_packet = echo_request::MutableEchoRequestPacket::new(&mut buffer).unwrap();
         icmp_packet.set_icmp_type(pnetIcmpType(8));
@@ -207,12 +213,11 @@ mod tests {
             Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
             None,
         );
-        assert!(!icmpv4_rule.process(icmp_bytes)?);
-        Ok(())
+        assert!(!icmpv4_rule.process(icmp_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv4_3() -> Result<()> {
+    fn test_icmpv4_3() {
         let mut buffer = [0u8; 64];
         let mut icmp_packet = time_exceeded::MutableTimeExceededPacket::new(&mut buffer).unwrap();
         icmp_packet.set_icmp_type(pnetIcmpType(0));
@@ -223,12 +228,11 @@ mod tests {
             Some(vec![IcmpType::TimeExceeded, IcmpType::EchoReply]),
             None,
         );
-        assert!(icmpv4_rule.process(icmp_bytes)?);
-        Ok(())
+        assert!(icmpv4_rule.process(icmp_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv6_1() -> Result<()> {
+    fn test_icmpv6_1() {
         let mut buffer = [0u8; 64];
         let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
         icmpv6_packet.set_icmpv6_type(Icmpv6Types::PacketTooBig);
@@ -240,12 +244,11 @@ mod tests {
             None,
         );
 
-        assert!(icmpv6_rule.process(icmpv6_bytes)?);
-        Ok(())
+        assert!(icmpv6_rule.process(icmpv6_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv6_2() -> Result<()> {
+    fn test_icmpv6_2() {
         let mut buffer = [0u8; 64];
         let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
         icmpv6_packet.set_icmpv6_type(Icmpv6Types::NeighborSolicit);
@@ -257,12 +260,11 @@ mod tests {
             None,
         );
 
-        assert!(!icmpv6_rule.process(icmpv6_bytes)?);
-        Ok(())
+        assert!(!icmpv6_rule.process(icmpv6_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv6_3() -> Result<()> {
+    fn test_icmpv6_3() {
         let mut buffer = [0u8; 64];
         let mut icmpv6_packet = MutableIcmpv6Packet::new(&mut buffer).unwrap();
         icmpv6_packet.set_icmpv6_type(Icmpv6Types::PacketTooBig);
@@ -274,12 +276,11 @@ mod tests {
             Some(vec![1, 2, 55]),
         );
 
-        assert!(!icmpv6_rule.process(icmpv6_bytes)?);
-        Ok(())
+        assert!(!icmpv6_rule.process(icmpv6_bytes).unwrap());
     }
 
     #[test]
-    fn test_icmpv6_4() -> Result<()> {
+    fn test_icmpv6_4() {
         // First packet
         let mut buffer_1 = [0u8; 64];
         let mut icmpv6_packet_1 = MutableIcmpv6Packet::new(&mut buffer_1).unwrap();
@@ -299,9 +300,7 @@ mod tests {
             Some(vec![0, 1, 2, 55]),
         );
 
-        assert!(icmpv6_rule.process(icmpv6_bytes_1)?);
-        assert!(!icmpv6_rule.process(icmpv6_bytes_2)?);
-
-        Ok(())
+        assert!(icmpv6_rule.process(icmpv6_bytes_1).unwrap());
+        assert!(!icmpv6_rule.process(icmpv6_bytes_2).unwrap());
     }
 }

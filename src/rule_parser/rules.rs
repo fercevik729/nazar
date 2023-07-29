@@ -62,14 +62,14 @@ pub struct CustomRule {
 }
 
 impl ProcessPacket for CustomRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         // Check the IpAddrs
         //
         // Check the port numbers
         //
         // Get the result of processing the protocol rule
         //
-        Ok(true)
+        Some(true)
     }
 }
 
@@ -88,7 +88,7 @@ pub enum ProtocolRule {
 }
 
 impl ProcessPacket for ProtocolRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         match self {
             Self::Icmp(rule) => rule.process(body),
             Self::Icmpv6(rule) => rule.process(body),
@@ -119,5 +119,5 @@ impl Patterns {
 
 // A trait indicating that the type which implements is capable of processing request packets
 trait ProcessPacket {
-    fn process(&self, body: &[u8]) -> Result<bool>;
+    fn process(&self, body: &[u8]) -> Option<bool>;
 }

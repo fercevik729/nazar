@@ -159,7 +159,7 @@ fn is_rtp(payload: &[u8]) -> bool {
 }
 
 impl ProcessPacket for UdpRule {
-    fn process(&self, body: &[u8]) -> Result<bool> {
+    fn process(&self, body: &[u8]) -> Option<bool> {
         if let Some(udp_packet) = UdpPacket::new(body) {
             // Check the next level protocols using the previously defined helper functions
             if let Some(next_protocol) = &self.next_protocol {
@@ -167,27 +167,27 @@ impl ProcessPacket for UdpRule {
                 match next_protocol {
                     UdpNextLevel::Dns => {
                         if !is_dns(payload) {
-                            return Ok(false);
+                            return Some(false);
                         }
                     }
                     UdpNextLevel::Dhcp => {
                         if !is_dhcp(payload) {
-                            return Ok(false);
+                            return Some(false);
                         }
                     }
                     UdpNextLevel::Rtp => {
                         if !is_rtp(payload) {
-                            return Ok(false);
+                            return Some(false);
                         }
                     }
                     UdpNextLevel::Sip => {
                         if !is_sip(payload) {
-                            return Ok(false);
+                            return Some(false);
                         }
                     }
                     UdpNextLevel::Snmp => {
                         if !is_snmp(payload) {
-                            return Ok(false);
+                            return Some(false);
                         }
                     }
                 }
@@ -198,27 +198,26 @@ impl ProcessPacket for UdpRule {
                 // Return false if the size of the udp packet is less than then
                 // maximum packet size
                 if max_packet_size < udp_packet.packet_size() {
-                    return Ok(false);
+                    return Some(false);
                 }
             }
 
             // Check source and destination ports
             if let Some(src_port) = self.src_port {
                 if udp_packet.get_source() != src_port {
-                    return Ok(false);
+                    return Some(false);
                 }
             }
 
             if let Some(dest_port) = self.dest_port {
                 if udp_packet.get_destination() != dest_port {
-                    return Ok(false);
+                    return Some(false);
                 }
             }
 
-            Ok(true)
-        } else {
-            Err(anyhow!("Unable to parse UDP packet."))
+            return Some(true);
         }
+        None
     }
 }
 
@@ -359,7 +358,7 @@ mod tests {
 
     // Test process function for udp packets
     #[test]
-    fn test_udp_packet_1() -> Result<()> {
+    fn test_udp_packet_1() {
         // Test DNS packet
         let mut body = [0u8; 50];
         let mut udp_packet = MutableUdpPacket::new(&mut body).unwrap();
@@ -370,13 +369,11 @@ mod tests {
         udp_packet.set_payload(&dns_payload);
 
         let rule = UdpRule::new(Some(UdpNextLevel::Dns), Some(128), None, None);
-        assert!(rule.process(udp_packet.packet())?);
-
-        Ok(())
+        assert!(rule.process(udp_packet.packet()).unwrap());
     }
 
     #[test]
-    fn test_udp_packet_2() -> Result<()> {
+    fn test_udp_packet_2() {
         // Test Next Level Protocol
         let mut body = [0u8; 50];
         let mut udp_packet = MutableUdpPacket::new(&mut body).unwrap();
@@ -384,13 +381,11 @@ mod tests {
         udp_packet.set_payload(sip_payload);
 
         let rule = UdpRule::new(Some(UdpNextLevel::Dhcp), None, None, None);
-        assert!(!rule.process(udp_packet.packet())?);
-
-        Ok(())
+        assert!(!rule.process(udp_packet.packet()).unwrap());
     }
 
     #[test]
-    fn test_udp_packet_3() -> Result<()> {
+    fn test_udp_packet_3() {
         // Test Packet Size
         let mut body = [0u8; 50];
         let mut udp_packet = MutableUdpPacket::new(&mut body).unwrap();
@@ -398,13 +393,11 @@ mod tests {
         udp_packet.set_payload(sip_payload);
 
         let rule = UdpRule::new(Some(UdpNextLevel::Sip), Some(6), None, None);
-        assert!(!rule.process(udp_packet.packet())?);
-
-        Ok(())
+        assert!(!rule.process(udp_packet.packet()).unwrap());
     }
 
     #[test]
-    fn test_udp_packet_4() -> Result<()> {
+    fn test_udp_packet_4() {
         // Test DHCP packet with packet size and next level protocols
         let mut body = [0u8; 300];
         let mut udp_packet = MutableUdpPacket::new(&mut body).unwrap();
@@ -429,13 +422,11 @@ mod tests {
         udp_packet.set_payload(&dhcp_payload);
 
         let rule = UdpRule::new(Some(UdpNextLevel::Dhcp), Some(100), None, None);
-        assert!(rule.process(udp_packet.packet())?);
-
-        Ok(())
+        assert!(rule.process(udp_packet.packet()).unwrap());
     }
 
     #[test]
-    fn test_udp_packet_5() -> Result<()> {
+    fn test_udp_packet_5() {
         // Check source and destination ports
         let rule = UdpRule::new(Some(UdpNextLevel::Sip), Some(100), Some(5060), Some(5060));
 
@@ -446,7 +437,7 @@ mod tests {
         udp_packet.set_source(5060);
         udp_packet.set_destination(5060);
 
-        assert!(rule.process(udp_packet.packet())?);
+        assert!(rule.process(udp_packet.packet()).unwrap());
 
         let mut body2 = [0u8; 50];
         let mut udp_packet2 = MutableUdpPacket::new(&mut body2).unwrap();
@@ -454,7 +445,7 @@ mod tests {
         udp_packet2.set_payload(payload2);
         udp_packet2.set_source(5049);
         udp_packet2.set_destination(5060);
-        assert!(!rule.process(udp_packet2.packet())?);
+        assert!(!rule.process(udp_packet2.packet()).unwrap());
 
         let mut body3 = [0u8; 50];
         let mut udp_packet3 = MutableUdpPacket::new(&mut body3).unwrap();
@@ -462,7 +453,7 @@ mod tests {
         udp_packet3.set_payload(payload3);
         udp_packet3.set_source(5060);
         udp_packet3.set_destination(5049);
-        assert!(!rule.process(udp_packet3.packet())?);
+        assert!(!rule.process(udp_packet3.packet()).unwrap());
 
         let mut body4 = [0u8; 50];
         let mut udp_packet4 = MutableUdpPacket::new(&mut body4).unwrap();
@@ -470,7 +461,6 @@ mod tests {
         udp_packet4.set_payload(payload4);
         udp_packet4.set_source(5049);
         udp_packet4.set_destination(5049);
-        assert!(!rule.process(udp_packet4.packet())?);
-        Ok(())
+        assert!(!rule.process(udp_packet4.packet()).unwrap());
     }
 }
