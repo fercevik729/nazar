@@ -117,7 +117,7 @@ impl ProcessPacket for DnsRule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        if let Some(dns_request) = dns_parser::Packet::parse(body).ok() {
+        if let Ok(dns_request) = dns_parser::Packet::parse(body) {
             // Iterate over all the questions in the DNS packet and see if any match
             // the patterns specified in the DNS rule
             let questions = dns_request.questions;

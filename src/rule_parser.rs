@@ -150,24 +150,14 @@ mod iprange_tests {
 // to be crossed during a connection
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct PortRange {
-    begin: i32,
-    end: Option<i32>,
+    begin: u16,
+    end: Option<u16>,
 }
 
 impl PortRange {
-    pub fn new(begin: i32, end: Option<i32>) -> Result<Self> {
+    pub fn new(begin: u16, end: Option<u16>) -> Result<Self> {
         // Validate the port numbers are within the 0 to 65536 range
-        let valid_ports = 0..=65536;
-        if !(valid_ports).contains(&begin) {
-            return Err(anyhow!(
-                "begin port {} must be in the range 0 to 65536",
-                begin
-            ));
-        }
         match end {
-            Some(e) if !(valid_ports).contains(&e) => {
-                Err(anyhow!("end port {} must be in the range 0 to 65536", e))
-            }
             Some(e) if e < begin => Err(anyhow!(
                 "end port {} must be greater than or equal to begin port {}",
                 e,
@@ -179,7 +169,7 @@ impl PortRange {
 }
 
 impl Validate for PortRange {
-    type Item = i32;
+    type Item = u16;
 
     fn is_valid(&self, other: Self::Item) -> bool {
         if let Some(e) = self.end {
@@ -212,7 +202,7 @@ mod portrange_tests {
     #[test]
     fn new_one_endpoint() {
         let b = 127;
-        let e: Option<i32> = None;
+        let e: Option<u16> = None;
 
         let exp = PortRange {
             begin: 127,
@@ -232,15 +222,6 @@ mod portrange_tests {
             e, b
         );
         assert_err!(PortRange::new(b, Some(e)), exp);
-
-        let b2 = 65538;
-        let exp2 = format!("begin port {} must be in the range 0 to 65536", b2);
-        assert_err!(PortRange::new(b2, None), exp2);
-
-        let b3 = 1;
-        let e3 = 65538;
-        let exp3 = format!("end port {} must be in the range 0 to 65536", e3);
-        assert_err!(PortRange::new(b3, Some(e3)), exp3);
     }
 
     #[test]

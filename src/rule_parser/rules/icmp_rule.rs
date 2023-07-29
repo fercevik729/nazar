@@ -1,5 +1,6 @@
 use super::*;
 
+use etherparse::{self, Icmpv4Type};
 // Enum representing the different kinds of ICMPv6 Requests
 #[derive(Deserialize, Debug)]
 enum Icmpv6Type {
@@ -58,8 +59,8 @@ impl ProcessPacket for Icmpv6Rule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        let icmp_packet = etherparse::Icmpv6Slice::from_slice(body).ok();
-        if let Some(packet) = icmp_packet {
+        let icmp_packet = etherparse::Icmpv6Slice::from_slice(body);
+        if let Ok(packet) = icmp_packet {
             // Check the ICMPv6 headers
             if let Some(headers) = &self.icmpv6_types {
                 let target = packet.header();
@@ -147,9 +148,9 @@ impl ProcessPacket for IcmpRule {
         // it must match all the fields and *at least one* of any subfields.
         //
         // Parse request
-        let icmp_packet = etherparse::Icmpv4Slice::from_slice(body).ok();
+        let icmp_packet = etherparse::Icmpv4Slice::from_slice(body);
 
-        if let Some(packet) = icmp_packet {
+        if let Ok(packet) = icmp_packet {
             // Check the ICMPv4 headers
             if let Some(headers) = &self.icmp_types {
                 let target = packet.header();

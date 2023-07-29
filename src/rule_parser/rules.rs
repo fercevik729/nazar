@@ -4,16 +4,9 @@ use self::icmp_rule::{IcmpRule, Icmpv6Rule};
 use self::tcp_rule::TcpRule;
 use self::udp_rule::UdpRule;
 
-use super::{BWList, Deserialize, IpRange, PortRange, Protocol, Result};
+use super::{BWList, Deserialize, IpRange, PortRange, Protocol};
 
-use anyhow::{anyhow, Ok};
-use etherparse::{self, Icmpv4Type};
-use httparse::Status;
-use pnet::packet::{
-    tcp::{self, TcpPacket},
-    udp::UdpPacket,
-    Packet, PacketSize,
-};
+use pnet::packet::{Packet, PacketSize};
 use std::{collections::HashMap, net::IpAddr};
 
 mod dns_rule;

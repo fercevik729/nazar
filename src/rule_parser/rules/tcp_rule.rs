@@ -1,5 +1,7 @@
 use super::*;
 
+use pnet::packet::tcp::{self, TcpPacket};
+
 // Enum representing TCP Options
 #[derive(Deserialize, Debug)]
 enum TcpOption {

@@ -1,5 +1,7 @@
 use super::*;
 
+use pnet::packet::udp::UdpPacket;
+
 // Enum representing next level protocols on top of UDP
 // DNS is excluded because it has its own separate rule
 // implementation

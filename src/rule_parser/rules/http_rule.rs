@@ -1,5 +1,7 @@
 use super::*;
 
+use httparse::{self, Status};
+
 // Enum to represent HTTP Methods
 #[derive(Deserialize, Debug)]
 enum HttpMethod {
@@ -87,7 +89,7 @@ impl ProcessPacket for HttpRule {
         // Parse request
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
-        let res = req.parse(body).ok();
+        let res = req.parse(body);
 
         match req.method {
             Some(m) => {
@@ -143,7 +145,7 @@ impl ProcessPacket for HttpRule {
         // If the body is empty/nonexistent but there
         // are patterns in the rule the function should
         // return false
-        if let Some(Status::Complete(ofs)) = res {
+        if let Ok(Status::Complete(ofs)) = res {
             if let Some(bp) = &self.body_contains {
                 return Some(bp.match_exists(&body[ofs..]));
             }
