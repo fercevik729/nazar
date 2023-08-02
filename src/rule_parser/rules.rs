@@ -122,6 +122,7 @@ pub enum IdsAction {
     Terminate,
     Whitelist,
     Blacklist,
+    Nop,
 }
 
 #[derive(Deserialize, Debug)]
@@ -152,6 +153,7 @@ impl CustomRule {
     }
 
     fn process_protocol_rule(&self, body: &[u8]) -> Option<bool> {
+        // Processes the packet depending on the user-defined protocol rule
         match &self.prot_rule {
             ProtocolRule::Icmp(rule) => return rule.process(body),
             ProtocolRule::Icmpv6(rule) => return rule.process(body),
@@ -162,39 +164,49 @@ impl CustomRule {
         };
     }
 
-    fn get_action(&self) -> &IdsAction {
-        &self.action
-    }
-}
-
-impl ProcessPacket for CustomRule {
-    fn process(&self, body: &[u8]) -> Option<bool> {
+    fn process_packet(&self, body: &[u8]) -> &IdsAction {
+        // Processes the packet based on the CustomRule specifications
+        // If it matches the rule, the user-defined IdsAction is returned
+        // If it doesn't match the rule, IdsAction::Log is returned (default Action)
+        // If the packet's protocol didn't match the ProtocolRule and therefore couldn't
+        // be parsed, IdsAction::Nop is returned (do nothing)
+        // IPv6 Packet
         if let Some(ip_packet) = Ipv6Packet::new(body) {
             // Check the IpAddrs
             if !CustomRule::match_ipv6(self.src_ip, ip_packet.get_source()) {
-                return Some(false);
+                return &IdsAction::Log;
             }
             if !CustomRule::match_ipv6(self.dest_ip, ip_packet.get_destination()) {
-                return Some(false);
+                return &IdsAction::Log;
             }
 
             // Get the result of processing the protocol rule
-            return self.process_protocol_rule(body);
+            match self.process_protocol_rule(body) {
+                Some(false) => return &IdsAction::Log,
+                Some(true) => return &self.action,
+                None => return &IdsAction::Nop,
+            }
         }
 
+        // IPv4 Packet
         if let Some(ip_packet) = Ipv4Packet::new(body) {
             // Check the IpAddrs
             if !CustomRule::match_ipv4(self.src_ip, ip_packet.get_source()) {
-                return Some(false);
+                return &IdsAction::Log;
             }
             if !CustomRule::match_ipv4(self.dest_ip, ip_packet.get_destination()) {
-                return Some(false);
+                return &IdsAction::Log;
             }
 
             // Get the result of processing the protocol rule
-            return self.process_protocol_rule(body);
+            match self.process_protocol_rule(body) {
+                Some(false) => return &IdsAction::Log,
+                Some(true) => return &self.action,
+                None => return &IdsAction::Nop,
+            }
         }
-        None
+
+        &IdsAction::Nop
     }
 }
 
