@@ -23,6 +23,22 @@ mod icmp_rule;
 mod tcp_rule;
 mod udp_rule;
 
+// TODO: Test RuleConfig and CustomRule with Ipv4 and Ipv6 Packets
+
+// Enum used to represent intrusion detection system
+// actions
+// TODO: implement Action-specific packet processing functions
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub enum IdsAction {
+    Alert,
+    Log,
+    Block,
+    Terminate,
+    Whitelist,
+    Blacklist,
+    Nop,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct RuleConfig {
     /// Option-al blacklist or whitelist of source
@@ -39,6 +55,7 @@ pub struct RuleConfig {
 
 impl RuleConfig {
     fn convert_protocols(prot: IpNextHeaderProtocol) -> Option<Protocol> {
+        // Given a pnet::IpNextHeaderProtocol it returns an Option of the Protocol enum
         match prot {
             IpNextHeaderProtocols::Udp => Some(Protocol::Udp),
             IpNextHeaderProtocols::Tcp => Some(Protocol::Tcp),
@@ -63,19 +80,71 @@ impl RuleConfig {
         }
     }
 
-    fn sniff_v4(&self, ipv4_packet: Ipv4Packet) -> Option<bool> {
+    fn sniff_v6(&self, ipv6_packet: Ipv6Packet) -> IdsAction {
+        // A function that returns an IdsAction based on whether or not the Ipv6Packet matches the
+        // global RuleConfig
+        // Checks the ip addresses of the Ipv6Packet
+        if let Some(ips) = &self.ip_list {
+            // Check if the src_ip is in the Black/White List of ips
+            let src_ip = ipv6_packet.get_source();
+            if ips.is_valid_item(IpAddr::V6(src_ip)) {
+                return IdsAction::Log;
+            }
+
+            // Check if the dest_ip is in the Black/White List of ips
+            let dest_ip = ipv6_packet.get_destination();
+            if ips.is_valid_item(IpAddr::V6(dest_ip)) {
+                return IdsAction::Log;
+            }
+        }
+
+        // Check the ports
+        if let Some(ports) = &self.port_list {
+            match RuleConfig::get_ports(ipv6_packet.packet()) {
+                // No ports could be retrieved
+                None => return IdsAction::Log,
+                // Validate src and dest ports
+                Some((src, dest)) => {
+                    if !ports.is_valid_item(src) {
+                        return IdsAction::Log;
+                    }
+                    if !ports.is_valid_item(dest) {
+                        return IdsAction::Log;
+                    }
+                }
+            }
+        }
+
+        // Check the protocol
+        if let Some(prots) = &self.protocol_list {
+            match RuleConfig::convert_protocols(ipv6_packet.get_next_header()) {
+                // Unsupported Protocol
+                None => return IdsAction::Log,
+                // Check if the protocol is allowed, if not return false
+                Some(prot) if prots.is_valid_item(prot) => return IdsAction::Log,
+                _ => {}
+            }
+        }
+
+        // Alert if the packet matches the global rules
+        IdsAction::Alert
+    }
+
+    fn sniff_v4(&self, ipv4_packet: Ipv4Packet) -> IdsAction {
+        // A function that returns an IdsAction based on whether or not the Ipv4Packet matches
+        // the global RuleConfig
         // Check the Ips
         if let Some(ips) = &self.ip_list {
             // Check if the src_ip is in the Black/White List of ips
             let src_ip = ipv4_packet.get_source();
             if !ips.is_valid_item(IpAddr::V4(src_ip)) {
-                return Some(false);
+                return IdsAction::Log;
             }
 
             // Check if the dest_ip is in the Black/White List of ips
             let dest_ip = ipv4_packet.get_destination();
             if !ips.is_valid_item(IpAddr::V4(dest_ip)) {
-                return Some(false);
+                return IdsAction::Log;
             }
         }
 
@@ -83,14 +152,14 @@ impl RuleConfig {
         if let Some(ports) = &self.port_list {
             match RuleConfig::get_ports(ipv4_packet.packet()) {
                 // No ports could be retrieved
-                None => return Some(false),
+                None => return IdsAction::Log,
                 // Validate src and dest ports
                 Some((src, dest)) => {
                     if !ports.is_valid_item(src) {
-                        return Some(false);
+                        return IdsAction::Log;
                     }
                     if !ports.is_valid_item(dest) {
-                        return Some(false);
+                        return IdsAction::Log;
                     }
                 }
             }
@@ -100,29 +169,16 @@ impl RuleConfig {
         if let Some(prots) = &self.protocol_list {
             match RuleConfig::convert_protocols(ipv4_packet.get_next_level_protocol()) {
                 // Unsupported Protocol
-                None => return Some(false),
+                None => return IdsAction::Log,
                 // Check if the protocol is allowed, if not return false
-                Some(prot) if !prots.is_valid_item(prot) => return Some(false),
+                Some(prot) if !prots.is_valid_item(prot) => return IdsAction::Log,
                 _ => {}
             }
         }
 
-        Some(true)
+        // Alert if the packet matches the global rules
+        IdsAction::Alert
     }
-}
-
-// Enum used to represent intrusion detection system
-// actions
-// TODO: implement Action-specific packet processing functions
-#[derive(Deserialize, Debug)]
-pub enum IdsAction {
-    Alert,
-    Log,
-    Block,
-    Terminate,
-    Whitelist,
-    Blacklist,
-    Nop,
 }
 
 #[derive(Deserialize, Debug)]
@@ -152,61 +208,50 @@ impl CustomRule {
         }
     }
 
-    fn process_protocol_rule(&self, body: &[u8]) -> Option<bool> {
-        // Processes the packet depending on the user-defined protocol rule
-        match &self.prot_rule {
-            ProtocolRule::Icmp(rule) => return rule.process(body),
-            ProtocolRule::Icmpv6(rule) => return rule.process(body),
-            ProtocolRule::Tcp(rule) => return rule.process(body),
-            ProtocolRule::Udp(rule) => return rule.process(body),
-            ProtocolRule::Http(rule) => return rule.process(body),
-            ProtocolRule::Dns(rule) => return rule.process(body),
-        };
-    }
-
-    fn process_packet(&self, body: &[u8]) -> &IdsAction {
-        // Processes the packet based on the CustomRule specifications
+    fn process_ipv6_packet(&self, ipv6_packet: Ipv6Packet) -> IdsAction {
+        // Processes the Ipv6 packet based on the CustomRule specifications
         // If it matches the rule, the user-defined IdsAction is returned
         // If it doesn't match the rule, IdsAction::Log is returned (default Action)
         // If the packet's protocol didn't match the ProtocolRule and therefore couldn't
         // be parsed, IdsAction::Nop is returned (do nothing)
-        // IPv6 Packet
-        if let Some(ip_packet) = Ipv6Packet::new(body) {
-            // Check the IpAddrs
-            if !CustomRule::match_ipv6(self.src_ip, ip_packet.get_source()) {
-                return &IdsAction::Log;
-            }
-            if !CustomRule::match_ipv6(self.dest_ip, ip_packet.get_destination()) {
-                return &IdsAction::Log;
-            }
 
-            // Get the result of processing the protocol rule
-            match self.process_protocol_rule(body) {
-                Some(false) => return &IdsAction::Log,
-                Some(true) => return &self.action,
-                None => return &IdsAction::Nop,
-            }
+        // Check the IpAddrs
+        if !CustomRule::match_ipv6(self.src_ip, ipv6_packet.get_source()) {
+            return IdsAction::Log;
+        }
+        if !CustomRule::match_ipv6(self.dest_ip, ipv6_packet.get_destination()) {
+            return IdsAction::Log;
         }
 
-        // IPv4 Packet
-        if let Some(ip_packet) = Ipv4Packet::new(body) {
-            // Check the IpAddrs
-            if !CustomRule::match_ipv4(self.src_ip, ip_packet.get_source()) {
-                return &IdsAction::Log;
-            }
-            if !CustomRule::match_ipv4(self.dest_ip, ip_packet.get_destination()) {
-                return &IdsAction::Log;
-            }
+        // Get the result of processing the protocol rule
+        match self.prot_rule.process(ipv6_packet.packet()) {
+            Some(false) => return IdsAction::Log,
+            Some(true) => return self.action,
+            None => return IdsAction::Nop,
+        }
+    }
 
-            // Get the result of processing the protocol rule
-            match self.process_protocol_rule(body) {
-                Some(false) => return &IdsAction::Log,
-                Some(true) => return &self.action,
-                None => return &IdsAction::Nop,
-            }
+    fn process_ipv4_packet(&self, ipv4_packet: Ipv4Packet) -> IdsAction {
+        // Processes the Ipv4 packet based on the CustomRule specifications
+        // If it matches the rule, the user-defined IdsAction is returned
+        // If it doesn't match the rule, IdsAction::Log is returned (default Action)
+        // If the packet's protocol didn't match the ProtocolRule and therefore couldn't
+        // be parsed, IdsAction::Nop is returned (do nothing)
+
+        // Check the IpAddrs
+        if !CustomRule::match_ipv4(self.src_ip, ipv4_packet.get_source()) {
+            return IdsAction::Log;
+        }
+        if !CustomRule::match_ipv4(self.dest_ip, ipv4_packet.get_destination()) {
+            return IdsAction::Log;
         }
 
-        &IdsAction::Nop
+        // Get the result of processing the protocol rule
+        match self.prot_rule.process(ipv4_packet.packet()) {
+            Some(false) => return IdsAction::Log,
+            Some(true) => return self.action,
+            None => return IdsAction::Nop,
+        }
     }
 }
 
