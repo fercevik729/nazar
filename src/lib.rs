@@ -31,10 +31,10 @@ use pnet::{
     },
 };
 
-pub mod rule_parser;
+pub mod rule_config;
 pub mod utils;
 
-use rule_parser::rules::RuleConfig;
+use rule_config::rules::RuleConfig;
 
 // Gets the network interface with the corresponding name or returns a default
 // value

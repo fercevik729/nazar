@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_fs::prelude::*;
 use nazar::{
     parse_rules,
-    rule_parser::{rules::RuleConfig, BWList, IpRange, PortRange, Protocol},
+    rule_config::{rules::RuleConfig, BWList, IpRange, PortRange, Protocol},
 };
 use std::net::{IpAddr, Ipv6Addr};
 use std::path::PathBuf;
@@ -164,8 +164,8 @@ fn test_parse_rules_3() -> Result<()> {
             )?,
         ])),
         port_list: Some(BWList::WhiteList(vec![
-            PortRange::new(20, Some(22))?,
-            PortRange::new(80, Some(84))?,
+            PortRange::new(20, Some(22)).unwrap(),
+            PortRange::new(80, Some(84)).unwrap(),
         ])),
         protocol_list: Some(BWList::BlackList(vec![Protocol::Udp, Protocol::Icmp])),
         rules: None,
