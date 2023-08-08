@@ -34,7 +34,7 @@ use pnet::{
 pub mod rule_config;
 pub mod utils;
 
-use rule_config::custom::RuleConfig;
+use rule_config::RuleConfig;
 
 // Gets the network interface with the corresponding name or returns a default
 // value

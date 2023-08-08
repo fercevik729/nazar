@@ -1,9 +1,19 @@
-#![allow(dead_code)]
 use anyhow::{anyhow, Result};
+use pnet::packet::ip::{IpNextHeaderProtocol, IpNextHeaderProtocols};
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::ipv6::Ipv6Packet;
+use pnet::packet::tcp::TcpPacket;
+use pnet::packet::udp::UdpPacket;
+use pnet::packet::Packet;
 use serde::Deserialize;
 use std::net::{IpAddr, Ipv6Addr};
 
+// Submodules
 pub mod custom;
+pub mod structs;
+
+use custom::CustomRule;
+use structs::{BWList, IpRange, PortRange, Protocol};
 
 // Enum used to represent intrusion detection system
 // actions
@@ -16,392 +26,183 @@ pub enum IdsAction {
     Nop,
 }
 
-pub trait Validate {
-    type Item: Copy;
+// Hierarchy of Rule Matching
+// --------------------------
+// Level 1: Custom Rule with IdsAction::Alert > CustomRule with IdsAction::Terminate > ... CustomRule with
+// IdsAction::Log (Packet must match all specified parameters of CustomRule - Logical AND)
+// --------------------------
+// Level 2: Global rules: if Packets match at least one of the specified parameters, then return
+// Alert or a CustomRule's IdsAction. Otherwise return a Log action (Logical OR).
 
-    // A function to check if an item `other` is considered valid
-    // for a given trait object
-    fn is_valid(&self, other: Self::Item) -> bool;
+#[derive(Deserialize, Debug)]
+pub struct RuleConfig {
+    /// Option-al blacklist or whitelist of source
+    /// and destination IP Addresses
+    pub ip_list: Option<BWList<IpRange>>,
+    /// Option-al blacklist or whitelist of source
+    /// and destination ports
+    pub port_list: Option<BWList<PortRange>>,
+    /// Option-al blacklist or whitelist of protocols
+    pub protocol_list: Option<BWList<Protocol>>,
+    /// Option-al vector of user-defined rules
+    pub rules: Option<Vec<CustomRule>>,
 }
 
-// A struct to handle inclusive IP address ranges
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-pub struct IpRange {
-    begin: Ipv6Addr,
-    end: Option<Ipv6Addr>,
-}
+impl RuleConfig {
+    fn convert_protocols(prot: IpNextHeaderProtocol) -> Option<Protocol> {
+        // Given a pnet::IpNextHeaderProtocol it returns an Option of the Protocol enum
+        match prot {
+            IpNextHeaderProtocols::Udp => Some(Protocol::Udp),
+            IpNextHeaderProtocols::Tcp => Some(Protocol::Tcp),
+            IpNextHeaderProtocols::Icmp => Some(Protocol::Icmp),
+            IpNextHeaderProtocols::Icmpv6 => Some(Protocol::Icmpv6),
+            _ => None,
+        }
+    }
 
-impl IpRange {
-    // Creates an IpRange struct of the `begin` and `end` parameters
-    pub fn new(begin: IpAddr, end: Option<IpAddr>) -> Result<Self> {
-        // Match statements to ensure IpAddresses are converted to v6
-        let begin_ip = match begin {
-            IpAddr::V4(ip) => ip.to_ipv6_mapped(),
-            IpAddr::V6(ip) => ip,
+    fn get_ports(body: &[u8]) -> Option<(u16, u16)> {
+        // Gets the src and dest ports if the buffer is a TcpPacket or a UdpPacket
+        let tcp_packet = TcpPacket::new(body);
+        match tcp_packet {
+            Some(t) => return Some((t.get_source(), t.get_destination())),
+            _ => {}
         };
 
-        let end_ip = match end {
-            Some(ip) => match ip {
-                IpAddr::V4(i) => Some(i.to_ipv6_mapped()),
-                IpAddr::V6(i) => Some(i),
-            },
+        let udp_packet = UdpPacket::new(body);
+        match udp_packet {
+            Some(u) => Some((u.get_source(), u.get_destination())),
             None => None,
-        };
+        }
+    }
 
-        // Bounds check
-        if let Some(e) = end_ip {
-            if e < begin_ip {
-                return Err(anyhow!(
-                    "end_ip {} must be greater than or equal to begin_ip {}",
-                    e,
-                    begin_ip
-                ));
+    fn sniff_v6(&self, ipv6_packet: &Ipv6Packet) -> IdsAction {
+        // A function that returns an IdsAction based on whether or not the Ipv6Packet matches the
+        // global RuleConfig
+
+        // Checks the list of CustomRules
+        if let Some(custom_rules) = &self.rules {
+            // Collect all the IdsActions of the custom rules that match against the current Ipv6Packet
+            let mut actions: Vec<IdsAction> = custom_rules
+                .iter()
+                .map(|rule| rule.process_ipv6_packet(ipv6_packet))
+                .filter(|action| match action {
+                    IdsAction::Nop => false,
+                    _ => true,
+                })
+                .collect();
+
+            // If the length is nonzero sort by priority of actions
+            // and return the first element in the vector
+            if actions.len() > 0 {
+                actions.sort();
+                return actions[0];
             }
         }
 
-        Ok(Self {
-            begin: begin_ip,
-            end: end_ip,
-        })
-    }
-}
+        // Checks the ip addresses of the Ipv6Packet
+        if let Some(ips) = &self.ip_list {
+            // Check if the src_ip is in the Black/White List of ips
+            let src_ip = ipv6_packet.get_source();
+            if !ips.is_valid_item(IpAddr::V6(src_ip)) {
+                return IdsAction::Alert;
+            }
 
-impl Validate for IpRange {
-    type Item = IpAddr;
-    // Checks if an ip address `ip` is in the range of the IpRange
-    fn is_valid(&self, other: Self::Item) -> bool {
-        // Convert `ip` parameter if it is v4
-        let new_ip = match other {
-            IpAddr::V6(i) => i,
-            IpAddr::V4(i) => i.to_ipv6_mapped(),
-        };
-
-        // Final range check
-        match self.end {
-            Some(e) => new_ip >= self.begin && new_ip <= e,
-            None => new_ip == self.begin,
+            // Check if the dest_ip is in the Black/White List of ips
+            let dest_ip = ipv6_packet.get_destination();
+            if !ips.is_valid_item(IpAddr::V6(dest_ip)) {
+                return IdsAction::Alert;
+            }
         }
-    }
-}
 
-// IpRange unit tests
-#[cfg(test)]
-mod iprange_tests {
-    use super::*;
-
-    use crate::{assert_err, assert_ok};
-
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn new_two_endpoints() {
-        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let e = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
-
-        let exp = IpRange {
-            begin: Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped(),
-            end: Some(Ipv4Addr::new(127, 0, 0, 3).to_ipv6_mapped()),
-        };
-
-        assert_ok!(IpRange::new(b, e), exp)
-    }
-
-    #[test]
-    fn new_one_endpoint() {
-        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let e = None;
-
-        let exp = IpRange {
-            begin: Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped(),
-            end: None,
-        };
-
-        assert_ok!(IpRange::new(b, e), exp)
-    }
-
-    #[test]
-    fn new_invalid_range() {
-        let b = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3));
-        let e_val = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let e = Some(e_val);
-
-        let b_v6 = Ipv4Addr::new(127, 0, 0, 3).to_ipv6_mapped();
-        let e_v6 = Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped();
-
-        let exp = format!(
-            "end_ip {} must be greater than or equal to begin_ip {}",
-            e_v6, b_v6
-        );
-        assert_err!(IpRange::new(b, e), exp);
-    }
-
-    #[test]
-    fn is_valid_ip() -> Result<()> {
-        let b1 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let ipr1 = IpRange::new(b1, None)?;
-
-        assert!(ipr1.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
-        assert!(!ipr1.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3))));
-
-        let b2 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5));
-        let e2 = Some(IpAddr::V4(Ipv4Addr::new(127, 1, 2, 19)));
-        let ipr2 = IpRange::new(b2, e2)?;
-
-        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
-        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
-        assert!(ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 1, 0, 4))));
-        assert!(!ipr2.is_valid(IpAddr::V4(Ipv4Addr::new(127, 1, 2, 20))));
-
-        Ok(())
-    }
-}
-
-// A struct to represent Port Ranges
-// To be used with the BWList struct
-// to specify which ports are allowed/forbidden
-// to be crossed during a connection
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-pub struct PortRange {
-    begin: u16,
-    end: Option<u16>,
-}
-
-impl PortRange {
-    pub fn new(begin: u16, end: Option<u16>) -> Option<Self> {
-        // Validate the port numbers are within the 0 to 65536 range
-        match end {
-            Some(e) if e < begin => None,
-            _ => Some(Self { begin, end }),
+        // Check the ports
+        if let Some(ports) = &self.port_list {
+            match RuleConfig::get_ports(ipv6_packet.packet()) {
+                // No ports could be retrieved
+                None => (),
+                // Validate src and dest ports
+                Some((src, dest)) => {
+                    if !ports.is_valid_item(src) || !ports.is_valid_item(dest) {
+                        return IdsAction::Alert;
+                    }
+                }
+            }
         }
-    }
-}
 
-impl Validate for PortRange {
-    type Item = u16;
-
-    fn is_valid(&self, other: Self::Item) -> bool {
-        if let Some(e) = self.end {
-            other >= self.begin && other <= e
-        } else {
-            other == self.begin
+        // Check the protocol
+        if let Some(prots) = &self.protocol_list {
+            match RuleConfig::convert_protocols(ipv6_packet.get_next_header()) {
+                // Check if the protocol is allowed, if not return false
+                Some(prot) if !prots.is_valid_item(prot) => return IdsAction::Alert,
+                // If unsupported or non matching Protocol
+                _ => return IdsAction::Log,
+            }
         }
-    }
-}
 
-#[cfg(test)]
-mod portrange_tests {
-    use super::*;
-
-    use crate::assert_ok;
-
-    #[test]
-    fn new_two_endpoints() {
-        let b = 127;
-        let e = Some(198);
-
-        let exp = PortRange {
-            begin: 127,
-            end: Some(198),
-        };
-
-        assert_eq!(PortRange::new(b, e).unwrap(), exp)
+        IdsAction::Log
     }
 
-    #[test]
-    fn new_one_endpoint() {
-        let b = 127;
-        let e: Option<u16> = None;
+    fn sniff_v4(&self, ipv4_packet: &Ipv4Packet) -> IdsAction {
+        // A function that returns an IdsAction based on whether or not the Ipv4Packet matches
+        // the global RuleConfig
 
-        let exp = PortRange {
-            begin: 127,
-            end: None,
-        };
+        // Checks the list of CustomRules
+        if let Some(custom_rules) = &self.rules {
+            // Collect all the IdsActions of the custom rules that match against the current Ipv6Packet
+            let mut actions: Vec<IdsAction> = custom_rules
+                .iter()
+                .map(|rule| rule.process_ipv4_packet(ipv4_packet))
+                .filter(|action| match action {
+                    IdsAction::Nop => false,
+                    _ => true,
+                })
+                .collect();
 
-        assert_eq!(PortRange::new(b, e).unwrap(), exp)
-    }
-
-    #[test]
-    fn new_invalid_range() {
-        let b = 127;
-        let e = 101;
-
-        assert_eq!(PortRange::new(b, Some(e)), None);
-    }
-
-    #[test]
-    fn is_valid_port() -> Result<()> {
-        let b1 = 127;
-        let pr1 = PortRange::new(b1, None).unwrap();
-
-        assert!(pr1.is_valid(127));
-        assert!(!pr1.is_valid(128));
-
-        let b2 = 80;
-        let e2 = Some(86);
-        let pr2 = PortRange::new(b2, e2).unwrap();
-
-        assert!(!pr2.is_valid(87));
-        assert!(!pr2.is_valid(79));
-        assert!(pr2.is_valid(83));
-        assert!(!pr2.is_valid(127));
-
-        Ok(())
-    }
-}
-
-// Enum to represent Transport layer protocols
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Protocol {
-    Tcp,
-    Udp,
-    Icmp,
-    Icmpv6,
-}
-
-impl Validate for Protocol {
-    type Item = Protocol;
-
-    fn is_valid(&self, other: Self::Item) -> bool {
-        matches!(
-            (self, other),
-            (Self::Tcp, Self::Tcp) | (Self::Udp, Self::Udp) | (Self::Icmp, Self::Icmp)
-        )
-    }
-}
-
-#[cfg(test)]
-mod protocol_tests {
-
-    use super::*;
-
-    #[test]
-    fn test_validate_1() {
-        let prot = Protocol::Tcp;
-
-        assert!(prot.is_valid(Protocol::Tcp));
-        assert!(!prot.is_valid(Protocol::Udp));
-        assert!(!prot.is_valid(Protocol::Icmp));
-    }
-
-    #[test]
-    fn test_validate_2() {
-        let prot = Protocol::Udp;
-
-        assert!(!prot.is_valid(Protocol::Tcp));
-        assert!(prot.is_valid(Protocol::Udp));
-        assert!(!prot.is_valid(Protocol::Icmp));
-    }
-
-    #[test]
-    fn test_validate_3() {
-        let prot = Protocol::Icmp;
-
-        assert!(!prot.is_valid(Protocol::Tcp));
-        assert!(!prot.is_valid(Protocol::Udp));
-        assert!(prot.is_valid(Protocol::Icmp));
-    }
-}
-
-// Enum to represent blacklist and whitelist
-// for src/dest IP addresses
-// for ports
-// for protocols
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-pub enum BWList<T: Validate + PartialEq> {
-    WhiteList(Vec<T>),
-    BlackList(Vec<T>),
-}
-
-impl<T: Validate + PartialEq> BWList<T> {
-    fn is_valid_item(&self, target: T::Item) -> bool {
-        match self {
-            BWList::WhiteList(v) => return v.iter().any(|item| item.is_valid(target)),
-            BWList::BlackList(v) => return !v.iter().any(|item| item.is_valid(target)),
+            // If the length is nonzero sort by priority of actions
+            // and return the first element in the vector
+            if actions.len() > 0 {
+                actions.sort();
+                return actions[0];
+            }
         }
-    }
-}
+        // Check the Ips
+        if let Some(ips) = &self.ip_list {
+            // Check if the src_ip is in the Black/White List of ips
+            let src_ip = ipv4_packet.get_source();
+            if !ips.is_valid_item(IpAddr::V4(src_ip)) {
+                return IdsAction::Alert;
+            }
 
-#[cfg(test)]
-mod bwlist_tests {
+            // Check if the dest_ip is in the Black/White List of ips
+            let dest_ip = ipv4_packet.get_destination();
+            if !ips.is_valid_item(IpAddr::V4(dest_ip)) {
+                return IdsAction::Alert;
+            }
+        }
 
-    use anyhow::Result;
+        // Check the ports
+        if let Some(ports) = &self.port_list {
+            match RuleConfig::get_ports(ipv4_packet.packet()) {
+                // No ports could be retrieved
+                None => (),
+                // Validate src and dest ports
+                Some((src, dest)) => {
+                    if !ports.is_valid_item(src) || !ports.is_valid_item(dest) {
+                        return IdsAction::Alert;
+                    }
+                }
+            }
+        }
 
-    use super::*;
+        // Check the protocol
+        if let Some(prots) = &self.protocol_list {
+            match RuleConfig::convert_protocols(ipv4_packet.get_next_level_protocol()) {
+                // Check if the protocol is not allowed
+                Some(prot) if !prots.is_valid_item(prot) => return IdsAction::Alert,
+                // Unsupported or non matching Protocol
+                _ => return IdsAction::Log,
+            }
+        }
 
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn whitelist_ip_tests() -> Result<()> {
-        let wl = BWList::WhiteList(vec![
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(147, 168, 0, 3))),
-            )?,
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(150, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(162, 168, 0, 3))),
-            )?,
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(170, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(192, 128, 0, 1))),
-            )?,
-            IpRange::new(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 1)), None)?,
-        ]);
-
-        assert!(wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5))));
-        assert!(!wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
-        assert!(wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(161, 0, 0, 4))));
-        assert!(!wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(200, 0, 0, 4))));
-        assert!(wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(181, 0, 0, 4))));
-        assert!(!wl.is_valid_item(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 4))));
-
-        Ok(())
-    }
-
-    #[test]
-    fn blacklist_ip_tests() -> Result<()> {
-        let bl = BWList::BlackList(vec![
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(147, 168, 0, 3))),
-            )?,
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(150, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(162, 168, 0, 3))),
-            )?,
-            IpRange::new(
-                IpAddr::V4(Ipv4Addr::new(170, 0, 0, 5)),
-                Some(IpAddr::V4(Ipv4Addr::new(192, 128, 0, 1))),
-            )?,
-            IpRange::new(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 1)), None)?,
-        ]);
-
-        assert!(!bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5))));
-        assert!(bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 4))));
-        assert!(!bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(161, 0, 0, 4))));
-        assert!(bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(200, 0, 0, 4))));
-        assert!(!bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(181, 0, 0, 4))));
-        assert!(bl.is_valid_item(IpAddr::V4(Ipv4Addr::new(192, 132, 0, 4))));
-
-        Ok(())
-    }
-
-    #[test]
-    fn whitelist_port_tests() -> Result<()> {
-        let wl = BWList::WhiteList(vec![
-            PortRange::new(80, Some(82)).unwrap(),
-            PortRange::new(90, Some(95)).unwrap(),
-            PortRange::new(103, Some(195)).unwrap(),
-            PortRange::new(202, Some(212)).unwrap(),
-        ]);
-
-        assert!(wl.is_valid_item(81));
-        assert!(!wl.is_valid_item(79));
-        assert!(wl.is_valid_item(94));
-        assert!(!wl.is_valid_item(100));
-        assert!(!wl.is_valid_item(196));
-        assert!(wl.is_valid_item(211));
-
-        Ok(())
+        IdsAction::Log
     }
 }
