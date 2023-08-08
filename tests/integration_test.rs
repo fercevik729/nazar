@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_fs::prelude::*;
 use nazar::{
     parse_rules,
-    rule_config::{rules::RuleConfig, BWList, IpRange, PortRange, Protocol},
+    rule_config::{custom::RuleConfig, BWList, IpRange, PortRange, Protocol},
 };
 use std::net::{IpAddr, Ipv6Addr};
 use std::path::PathBuf;

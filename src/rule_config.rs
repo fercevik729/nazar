@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::net::{IpAddr, Ipv6Addr};
 
-pub mod rules;
+pub mod custom;
 
 // Enum used to represent intrusion detection system
 // actions
