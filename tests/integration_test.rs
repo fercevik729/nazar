@@ -15,12 +15,12 @@ use std::path::PathBuf;
 fn test_parse_rules_0() -> Result<()> {
     // Test for incorrect config file ext
     let invalid_ext = PathBuf::from(r"invalid.txt");
-    let result = parse_rules(&invalid_ext);
+    let result = parse_rules(invalid_ext);
     assert!(result.is_err());
 
     // Test for missing config
     let missing_fp = PathBuf::from(r"missing.json");
-    let result = parse_rules(&missing_fp);
+    let result = parse_rules(missing_fp);
     assert!(result.is_err());
 
     Ok(())
@@ -63,7 +63,7 @@ fn test_parse_rules_1() -> Result<()> {
         rules: None,
     };
 
-    let config: RuleConfig = *parse_rules(file.path())?;
+    let config: RuleConfig = *parse_rules(file.to_path_buf())?;
     assert!(expect_config.ip_list == config.ip_list);
 
     Ok(())
@@ -109,7 +109,7 @@ fn test_parse_rules_2() -> Result<()> {
         rules: None,
     };
 
-    let config: RuleConfig = *parse_rules(file.path())?;
+    let config: RuleConfig = *parse_rules(file.to_path_buf())?;
     assert!(
         config.ip_list == expect_config.ip_list
             && config.protocol_list == expect_config.protocol_list
@@ -174,7 +174,7 @@ fn test_parse_rules_3() -> Result<()> {
         rules: None,
     };
 
-    let config: RuleConfig = *parse_rules(file.path())?;
+    let config: RuleConfig = *parse_rules(file.to_path_buf())?;
     assert!(
         config.ip_list == expect_config.ip_list
             && config.protocol_list == expect_config.protocol_list

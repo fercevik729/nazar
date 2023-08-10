@@ -1,8 +1,7 @@
 use clap::Parser;
-use std::fs::File;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 
 #[derive(Parser, Debug)]
 #[command(name = "nazar")]
@@ -32,43 +31,11 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Interface
-    let iface = match nazar::get_iface(args.iface) {
-        Some(x) => x,
-        None => {
-            return Err(anyhow!(
-                "unable to find a suitable network interface to sniff packets on"
-            ))
-        }
-    };
-
     println!("Dynamic: {}", args.dynamic);
 
-    // Rules file
-    if !nazar::validate_file_ext(&args.rules, "json") {
-        return Err(anyhow!("rules file must be a .json file"));
-    }
-    let _rules_file = File::open(&args.rules).with_context(|| {
-        format!(
-            "No rules file of the name `{}` exists",
-            &args.rules.display()
-        )
-    })?;
-    println!("Reading rules from `{}`...", args.rules.display());
+    let log_path = args.outlog.unwrap_or_else(|| PathBuf::from("logs"));
 
-    // Logging with log4rs
-    let log_path = args
-        .outlog
-        .unwrap_or_else(|| std::path::PathBuf::from("logs"));
-
-    println!("Setting up logging in {:?} dir...", log_path);
-    nazar::setup_logging(log_path, 5, 5 * 1024)?;
-    println!("Done setting up logging...");
-
-    // Packet capture
-    println!("Initiating packet capture on interface {}...", iface);
-    let rx = &mut (*nazar::setup_pcap_rec(&iface)?);
-    nazar::handle_pcap(rx);
+    let _pcap = nazar::PacketCapturer::new(args.iface, args.rules, log_path)?;
 
     Ok(())
 }
