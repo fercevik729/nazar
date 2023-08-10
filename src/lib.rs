@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{create_dir, File};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -34,7 +35,7 @@ use pnet::{
 pub mod rule_config;
 pub mod utils;
 
-use rule_config::RuleConfig;
+use rule_config::{IdsAction, RuleConfig};
 
 // Gets the network interface with the corresponding name or returns a default
 // value
@@ -82,17 +83,34 @@ pub fn parse_rules(filepath: &Path) -> Result<Box<RuleConfig>> {
     Ok(Box::new(rules))
 }
 
+// Struct that represents a TCP connection
+struct TcpConnection {
+    src_ip: IpAddr,
+    src_port: u16,
+}
+
+// Main struct that implements the Business Logic of `nazar`
 pub struct PacketCapturer<'a> {
     rx: &'a mut dyn datalink::DataLinkReceiver,
     tx: &'a mut dyn datalink::DataLinkSender,
-    rules: Option<String>,
-    tcp_seq_num: u64,
+    rules: &'a RuleConfig,
+    tcp_seq_nums: HashMap<TcpConnection, u32>,
+}
+
+impl PacketCapturer<'_> {
+    fn perform_ids_action(&self, action: IdsAction) {
+        todo!();
+    }
+
+    fn new<'a>(iface: Option<String>, rule_path: &'a Path, log_path: &'a Path) -> Result<&'a Self> {
+        todo!();
+    }
 }
 
 // Sets up the packet capture datalink receiver via a provided Ethernet interface
-pub fn setup_pcap_rec(iface: &NetworkInterface) -> Result<Box<dyn datalink::DataLinkReceiver>> {
+pub fn setup_pcap_rec(iface: &NetworkInterface) -> Result<Box<(dyn datalink::DataLinkReceiver)>> {
     match datalink::channel(iface, Default::default()) {
-        Ok(datalink::Channel::Ethernet(_, rx)) => Ok(rx),
+        Ok(datalink::Channel::Ethernet(tx, rx)) => Ok(rx),
         Ok(_) => Err(anyhow!("unknown channel type")),
         Err(_) => Err(anyhow!("couldn't create the datalink channel")),
     }
