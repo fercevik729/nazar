@@ -62,17 +62,15 @@ impl RuleConfig {
 
     fn get_ports(body: &[u8]) -> Option<(u16, u16)> {
         // Gets the src and dest ports if the buffer is a TcpPacket or a UdpPacket
-        let tcp_packet = TcpPacket::new(body);
-        match tcp_packet {
-            Some(t) => return Some((t.get_source(), t.get_destination())),
-            _ => {}
-        };
-
-        let udp_packet = UdpPacket::new(body);
-        match udp_packet {
-            Some(u) => Some((u.get_source(), u.get_destination())),
-            None => None,
+        if let Some(tcp_packet) = TcpPacket::new(body) {
+            return Some((tcp_packet.get_source(), tcp_packet.get_destination()));
         }
+
+        if let Some(udp_packet) = UdpPacket::new(body) {
+            return Some((udp_packet.get_source(), udp_packet.get_destination()));
+        }
+
+        None
     }
 
     fn sniff_v6(&self, ipv6_packet: &Ipv6Packet) -> IdsAction {
@@ -85,15 +83,12 @@ impl RuleConfig {
             let mut actions: Vec<IdsAction> = custom_rules
                 .iter()
                 .map(|rule| rule.process_ipv6_packet(ipv6_packet))
-                .filter(|action| match action {
-                    IdsAction::Nop => false,
-                    _ => true,
-                })
+                .filter(|action| !matches!(action, IdsAction::Nop))
                 .collect();
 
             // If the length is nonzero sort by priority of actions
             // and return the first element in the vector
-            if actions.len() > 0 {
+            if !actions.is_empty() {
                 actions.sort();
                 return actions[0];
             }
@@ -151,15 +146,12 @@ impl RuleConfig {
             let mut actions: Vec<IdsAction> = custom_rules
                 .iter()
                 .map(|rule| rule.process_ipv4_packet(ipv4_packet))
-                .filter(|action| match action {
-                    IdsAction::Nop => false,
-                    _ => true,
-                })
+                .filter(|action| !matches!(action, IdsAction::Nop))
                 .collect();
 
             // If the length is nonzero sort by priority of actions
             // and return the first element in the vector
-            if actions.len() > 0 {
+            if !actions.is_empty() {
                 actions.sort();
                 return actions[0];
             }

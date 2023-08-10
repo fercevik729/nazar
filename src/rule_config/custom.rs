@@ -62,8 +62,8 @@ impl CustomRule {
 
         // Get the result of processing the protocol rule
         match self.prot_rule.process(ipv6_packet.packet()) {
-            Some(true) => return self.action,
-            _ => return IdsAction::Nop,
+            Some(true) => self.action,
+            _ => IdsAction::Nop,
         }
     }
 
@@ -84,8 +84,8 @@ impl CustomRule {
 
         // Get the result of processing the protocol rule
         match self.prot_rule.process(ipv4_packet.packet()) {
-            Some(true) => return self.action,
-            _ => return IdsAction::Nop,
+            Some(true) => self.action,
+            _ => IdsAction::Nop,
         }
     }
 }

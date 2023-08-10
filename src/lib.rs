@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{create_dir, File};
 use std::io::{ErrorKind, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{ffi::OsStr, net::IpAddr};
 
 use log::{error, info};
@@ -49,7 +49,7 @@ pub fn get_iface(iface: Option<String>) -> Option<NetworkInterface> {
 }
 
 // Validates a file's extension against the provided `ext` parameter
-pub fn validate_file_ext(filepath: &PathBuf, ext: &str) -> bool {
+pub fn validate_file_ext(filepath: &Path, ext: &str) -> bool {
     filepath.extension() == Some(OsStr::new(ext))
 }
 
@@ -105,12 +105,12 @@ impl PacketCapturer {
 
             let tcp_seq_nums: HashMap<TcpConnection, u32> = HashMap::new();
 
-            return Ok(Self {
+            Ok(Self {
                 tx,
                 rx,
                 rules,
                 tcp_seq_nums,
-            });
+            })
         } else {
             Err(anyhow!("no available ethernet interface could be found"))
         }
